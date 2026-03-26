@@ -3,7 +3,7 @@ use bco_core::{IntentDomain, RiskProfile, TaskIntent};
 use bco_harness::HarnessRegistry;
 use bco_orchestrator::BrainCellOrchestrator;
 use bco_session::SessionBootstrap;
-use bco_tui::TuiBlueprint;
+use bco_tui::{TuiBlueprint, TuiState};
 
 #[derive(Parser)]
 #[command(name = "bco")]
@@ -123,11 +123,23 @@ fn exec_command(objective: &[String]) {
     }
 
     let registry = HarnessRegistry::with_defaults();
+    let harness_name = registry.resolve(&intent).as_str().to_string();
     let orchestrator = BrainCellOrchestrator::new(registry);
     let blueprint = TuiBlueprint::claude_code_inspired();
 
-    println!("{}", orchestrator.describe_bootstrap(&intent, &session, &blueprint));
-    println!("Session ID: {}", session.id());
+    // Print bootstrap info to stderr (TUI will show this in transcript)
+    eprintln!("{}", orchestrator.describe_bootstrap(&intent, &session, &blueprint));
+    eprintln!("Session ID: {}", session.id());
+
+    // Create TUI state and run
+    let mut state = TuiState::with_objective(&intent.objective());
+    state.status.harness = Some(harness_name);
+    state.footer_hint = "Enter: send │ /help: commands │ Ctrl+C: interrupt";
+
+    // Run TUI
+    if let Err(e) = bco_tui::run_tui(state) {
+        eprintln!("TUI error: {}", e);
+    }
 }
 
 fn review_command(objective_id: Option<&str>) {

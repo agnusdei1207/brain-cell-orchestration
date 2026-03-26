@@ -9,3 +9,7 @@ repository.workspace = true
 [lints]
 workspace = true
 
+[dependencies]
+ratatui = "0.26"
+crossterm = "0.27"
+

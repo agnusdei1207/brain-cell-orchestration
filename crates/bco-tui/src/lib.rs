@@ -461,3 +461,19 @@ impl FooterInfo {
         Self { mode, shortcut_hint }
     }
 }
+
+// =============================================================================
+// TUI Renderer Module
+// =============================================================================
+
+pub mod renderer;
+pub use renderer::{TuiRenderer, TuiState, CellDisplay, ApprovalDisplay};
+
+/// Run the TUI with given state
+pub fn run_tui(state: TuiState) -> Result<(), std::io::Error> {
+    let mut renderer = TuiRenderer::new()?;
+    renderer.hide_cursor();
+    renderer.render(&state)?;
+    renderer.show_cursor();
+    Ok(())
+}
