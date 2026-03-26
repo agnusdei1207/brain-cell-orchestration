@@ -503,3 +503,176 @@ impl Default for ModelFallbackPolicy {
     }
 }
 
+// =============================================================================
+// Auth Profile Rotation and Cooldown System
+// =============================================================================
+
+use chrono::{DateTime, Utc};
+
+/// Authentication profile - a single auth configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthProfile {
+    /// Unique profile identifier
+    pub id: String,
+    /// Provider this profile is for
+    pub provider: ProviderRef,
+    /// Auth credentials (API key, OAuth token, etc.)
+    pub credentials: AuthCredentials,
+    /// Profile state
+    pub state: AuthProfileState,
+    /// Last successful use timestamp
+    pub last_used: Option<DateTime<Utc>>,
+    /// Cooldown until timestamp (if in cooldown)
+    pub cooldown_until: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthCredentials {
+    pub api_key: Option<String>,
+    pub oauth_token: Option<String>,
+    pub bearer_token: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthProfileState {
+    Active,
+    InCooldown,
+    Exhausted,
+    Invalid,
+}
+
+/// Rotation policy for auth profiles
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthRotationPolicy {
+    /// Enable automatic rotation
+    pub enabled: bool,
+    /// Number of requests before rotation
+    pub requests_before_rotation: u32,
+    /// Cooldown duration in seconds
+    pub cooldown_seconds: u64,
+    /// Max profiles to try before giving up
+    pub max_retries: u8,
+}
+
+impl Default for AuthRotationPolicy {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            requests_before_rotation: 100,
+            cooldown_seconds: 60,
+            max_retries: 3,
+        }
+    }
+}
+
+/// Auth profile rotation manager
+#[derive(Debug)]
+pub struct AuthRotationManager {
+    profiles: std::collections::HashMap<String, Vec<AuthProfile>>,
+    rotation_policy: AuthRotationPolicy,
+    request_counts: std::collections::HashMap<String, u32>,
+}
+
+impl AuthRotationManager {
+    pub fn new() -> Self {
+        Self {
+            profiles: std::collections::HashMap::new(),
+            rotation_policy: AuthRotationPolicy::default(),
+            request_counts: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Add an auth profile for a provider
+    pub fn add_profile(&mut self, provider: &str, profile: AuthProfile) {
+        self.profiles
+            .entry(provider.to_string())
+            .or_default()
+            .push(profile);
+    }
+
+    /// Get the next available profile for a provider (not in cooldown)
+    pub fn get_active_profile(&self, provider: &str) -> Option<&AuthProfile> {
+        let profiles = self.profiles.get(provider)?;
+        let now = Utc::now();
+
+        profiles.iter().find(|p| {
+            p.state == AuthProfileState::Active &&
+            p.cooldown_until.map(|cooldown| cooldown <= now).unwrap_or(true)
+        })
+    }
+
+    /// Record successful use of a profile
+    pub fn record_success(&mut self, provider: &str, profile_id: &str) {
+        // Increment request count
+        let key = format!("{}/{}", provider, profile_id);
+        *self.request_counts.entry(key.clone()).or_insert(0) += 1;
+
+        // Check if rotation needed
+        let count = *self.request_counts.get(&key).unwrap_or(&0);
+        if count >= self.rotation_policy.requests_before_rotation {
+            self.rotate_profile(provider, profile_id);
+        }
+
+        // Update last used timestamp
+        if let Some(profiles) = self.profiles.get_mut(provider) {
+            if let Some(profile) = profiles.iter_mut().find(|p| p.id == profile_id) {
+                profile.last_used = Some(Utc::now());
+            }
+        }
+    }
+
+    /// Record failed use and potentially put in cooldown
+    pub fn record_failure(&mut self, provider: &str, profile_id: &str) {
+        if let Some(profiles) = self.profiles.get_mut(provider) {
+            if let Some(profile) = profiles.iter_mut().find(|p| p.id == profile_id) {
+                // Put in cooldown
+                profile.state = AuthProfileState::InCooldown;
+                profile.cooldown_until = Some(
+                    Utc::now() + chrono::Duration::seconds(self.rotation_policy.cooldown_seconds as i64)
+                );
+            }
+        }
+    }
+
+    /// Rotate to a new profile for a provider
+    fn rotate_profile(&mut self, provider: &str, current_id: &str) {
+        if let Some(profiles) = self.profiles.get_mut(provider) {
+            // Mark current as in cooldown
+            if let Some(current) = profiles.iter_mut().find(|p| p.id == current_id) {
+                current.state = AuthProfileState::InCooldown;
+                current.cooldown_until = Some(
+                    Utc::now() + chrono::Duration::seconds(self.rotation_policy.cooldown_seconds as i64)
+                );
+            }
+
+            // Find next available
+            if let Some(next) = profiles.iter_mut().find(|p| p.id != current_id && p.state == AuthProfileState::Active) {
+                next.state = AuthProfileState::Active;
+                // Reset request count for new profile
+                let key = format!("{}/{}", provider, next.id);
+                self.request_counts.insert(key, 0);
+            }
+        }
+    }
+
+    /// Check if all profiles for a provider are exhausted
+    pub fn is_exhausted(&self, provider: &str) -> bool {
+        let profiles = self.profiles.get(provider);
+        match profiles {
+            None => true,
+            Some(profiles) => profiles.iter().all(|p| p.state == AuthProfileState::Exhausted || p.state == AuthProfileState::Invalid),
+        }
+    }
+
+    /// Set rotation policy
+    pub fn set_policy(&mut self, policy: AuthRotationPolicy) {
+        self.rotation_policy = policy;
+    }
+}
+
+impl Default for AuthRotationManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+

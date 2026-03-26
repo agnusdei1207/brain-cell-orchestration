@@ -44,7 +44,7 @@ This section records what appears to be implemented already versus what is still
 - [x] real submission queue and event queue are not yet wired end-to-end (SubmissionQueue wired, handle_operator_input implemented)
 - [x] session actor queue is not yet implemented (SessionActorQueue added with enqueue/dequeue)
 - [x] reason-aware failover is not yet implemented in Rust runtime (ModelManager.handle_model_failure with reason classification, retry delays)
-- [ ] auth profile rotation and cooldown system is not yet implemented
+- [x] auth profile rotation and cooldown system is not yet implemented (AuthProfile, AuthCredentials, AuthProfileState, AuthRotationPolicy, AuthRotationManager with cooldown tracking)
 - [x] hook-driven automation and memory flushes are not yet implemented (HookRegistry, HookEvent, HookAction, CheckpointManager.trigger_hooks with MemoryFlushPolicy automation)
 - [ ] subtree shutdown and lineage persistence need verification in code, not just types
 - [ ] session writeback files and append-only logs need implementation verification
