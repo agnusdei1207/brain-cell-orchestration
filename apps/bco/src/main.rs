@@ -462,6 +462,7 @@ fn approval_command(
                             &snapshot.meta,
                             SessionState::Completed,
                         );
+                        let _ = rewrite_pending_work(&session_dir, &plan.objective_id, &[]);
                     } else {
                         let next_step = plan.steps.get(next_index).cloned().unwrap_or_default();
                         let progress_event = serde_json::json!({
@@ -484,6 +485,11 @@ fn approval_command(
                             &snapshot.meta,
                             SessionState::Active,
                         );
+                        let _ = rewrite_pending_work(
+                            &session_dir,
+                            &plan.objective_id,
+                            std::slice::from_ref(&next_step),
+                        );
                     }
                 }
             } else {
@@ -496,6 +502,11 @@ fn approval_command(
                 });
                 let _ = append_jsonl_line(&session_dir.join("transcript.jsonl"), &paused_transcript);
                 let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Paused);
+                let _ = rewrite_pending_work(
+                    &session_dir,
+                    &snapshot.meta.id.to_string(),
+                    std::slice::from_ref(action),
+                );
             }
 
             println!(
@@ -535,6 +546,7 @@ fn continue_command(session_id: Option<&str>) {
             let active_index = plan.active_index.unwrap_or(0);
             if active_index >= plan.steps.len() {
                 let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Completed);
+                let _ = rewrite_pending_work(&session_dir, &plan.objective_id, &[]);
                 println!("Session {} is already complete.", snapshot.meta.id);
                 return;
             }
@@ -598,6 +610,11 @@ fn continue_command(session_id: Option<&str>) {
                     }),
                 );
                 let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Active);
+                let _ = rewrite_pending_work(
+                    &session_dir,
+                    &plan.objective_id,
+                    std::slice::from_ref(&active_step),
+                );
                 println!("Session {} continued into approval-gated step.", snapshot.meta.id);
                 return;
             }
@@ -640,6 +657,7 @@ fn continue_command(session_id: Option<&str>) {
                     }),
                 );
                 let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Completed);
+                let _ = rewrite_pending_work(&session_dir, &plan.objective_id, &[]);
             } else {
                 let next_step = plan.steps.get(next_index).cloned().unwrap_or_default();
                 let _ = append_jsonl_line(
@@ -650,6 +668,11 @@ fn continue_command(session_id: Option<&str>) {
                     }),
                 );
                 let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Active);
+                let _ = rewrite_pending_work(
+                    &session_dir,
+                    &plan.objective_id,
+                    std::slice::from_ref(&next_step),
+                );
             }
 
             println!("Session {} continued successfully.", snapshot.meta.id);
@@ -876,6 +899,7 @@ struct SessionSnapshot {
     next_action: Option<String>,
     active_cells: Vec<(String, String)>,
     pending_approvals: Vec<(String, String, String, String)>,
+    pending_work: Vec<String>,
 }
 
 impl SessionSnapshot {
@@ -922,6 +946,7 @@ fn load_session_snapshot(session_dir: &PathBuf) -> Result<SessionSnapshot, Strin
     let runtime = load_session_runtime(session_dir)?;
     let (plan_steps, transcript, next_action, active_cells, pending_approvals) =
         parse_session_artifacts(session_dir)?;
+    let pending_work = parse_pending_work(session_dir)?;
 
     Ok(SessionSnapshot {
         meta,
@@ -931,6 +956,7 @@ fn load_session_snapshot(session_dir: &PathBuf) -> Result<SessionSnapshot, Strin
         next_action,
         active_cells,
         pending_approvals,
+        pending_work,
     })
 }
 
@@ -942,7 +968,7 @@ fn parse_session_artifacts(
         Vec<String>,
         Option<String>,
         Vec<(String, String)>,
-        Vec<(String, String, String, String)>,
+        Vec<(String, String, String, String)>
     ),
     String,
 > {
@@ -1026,9 +1052,11 @@ fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, Str
     let events_content = fs::read_to_string(&events_path)
         .map_err(|e| format!("Failed to read orchestrator events: {}", e))?;
     let pending_approvals = parse_pending_approvals(session_dir).unwrap_or_default();
+    let pending_work = parse_pending_work(session_dir).unwrap_or_default();
 
     let turn_completed = events_content.lines().any(|line| line.contains("\"TurnCompleted\""));
     let has_pending_approval = !pending_approvals.is_empty();
+    let has_pending_work = !pending_work.is_empty();
     let mut active_cells = Vec::new();
 
     for line in topology_content.lines() {
@@ -1044,6 +1072,14 @@ fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, Str
                 "coordinator" | "executor" => "waiting",
                 "reviewer" => "idle",
                 _ => "waiting",
+            }
+        } else if has_pending_work {
+            match entry.cell_type.as_str() {
+                "planner" => "completed",
+                "coordinator" => "coordinating",
+                "executor" => "executing",
+                "reviewer" => "idle",
+                _ => "idle",
             }
         } else if turn_completed {
             "completed"
@@ -1095,6 +1131,25 @@ fn parse_pending_approvals(session_dir: &PathBuf) -> Result<Vec<(String, String,
     Ok(pending.into_values().collect())
 }
 
+fn parse_pending_work(session_dir: &PathBuf) -> Result<Vec<String>, String> {
+    let path = session_dir.join("pending_work.jsonl");
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read pending work log: {}", e))?;
+    let mut items = Vec::new();
+
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: PendingWorkLogEntry = serde_json::from_str(line)
+            .map_err(|e| format!("Failed to parse pending work line: {}", e))?;
+        items.push(entry.action);
+    }
+
+    Ok(items)
+}
+
 fn print_session_snapshot(snapshot: &SessionSnapshot) {
     println!("  Session: {}", snapshot.meta.id);
     println!("  State: {:?}", snapshot.meta.state);
@@ -1115,6 +1170,12 @@ fn print_session_snapshot(snapshot: &SessionSnapshot) {
         println!("  Cells:");
         for (name, status) in &snapshot.active_cells {
             println!("    {} ({})", name, status);
+        }
+    }
+    if !snapshot.pending_work.is_empty() {
+        println!("  Pending work:");
+        for action in &snapshot.pending_work {
+            println!("    {}", action);
         }
     }
     if !snapshot.pending_approvals.is_empty() {
@@ -1187,6 +1248,38 @@ fn update_session_state_in_dir(
         .map_err(|e| format!("Failed to write session.json: {}", e))?;
 
     touch_session_runtime(session_dir, existing.id, None)
+}
+
+fn rewrite_pending_work(
+    session_dir: &PathBuf,
+    objective_id: &str,
+    actions: &[String],
+) -> Result<(), String> {
+    let path = session_dir.join("pending_work.jsonl");
+    if actions.is_empty() {
+        return fs::write(path, "").map_err(|e| format!("Failed to clear pending_work.jsonl: {}", e));
+    }
+
+    let now = chrono::Utc::now();
+    let mut lines = Vec::new();
+    for action in actions {
+        let entry = PendingWorkLogEntry {
+            timestamp: now,
+            id: deterministic_request_id(action),
+            objective_id: objective_id.to_string(),
+            action: action.clone(),
+            retry_count: 0,
+            max_retries: 3,
+            last_error: None,
+            retry_class: "transient".to_string(),
+        };
+        let line = serde_json::to_string(&entry)
+            .map_err(|e| format!("Failed to serialize pending work line: {}", e))?;
+        lines.push(line);
+    }
+
+    fs::write(path, format!("{}\n", lines.join("\n")))
+        .map_err(|e| format!("Failed to write pending_work.jsonl: {}", e))
 }
 
 fn touch_session_runtime(
@@ -1352,6 +1445,18 @@ struct ApprovalLogEntry {
     request_id: String,
     action: Option<String>,
     risk: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct PendingWorkLogEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    id: String,
+    objective_id: String,
+    action: String,
+    retry_count: u8,
+    max_retries: u8,
+    last_error: Option<String>,
+    retry_class: String,
 }
 
 fn append_jsonl_line(path: &PathBuf, value: &serde_json::Value) -> Result<(), String> {

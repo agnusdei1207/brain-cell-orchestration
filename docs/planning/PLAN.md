@@ -177,6 +177,7 @@ Current implementation note:
 - local approval resolution also writes turn-progression transcript/event artifacts so operators can audit what changed
 - local operators can also drive the next active step with `bco continue`, which may immediately reopen approval if the next step is still high risk
 - local artifact-driven transitions now refresh `session_runtime.json:last_updated`, so review and resume can trust local runtime metadata without any server session
+- local review output now surfaces `pending_work.jsonl`, which gives operators a clearer wake/resume picture than plan state alone
 - the next priority is not inventing more persistence types, but connecting those persisted states to richer autonomous execution
 
 ## 8. Proposed Runtime Model
