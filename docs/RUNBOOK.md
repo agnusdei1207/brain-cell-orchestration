@@ -77,7 +77,8 @@ Verification note:
 
 ### Confirmed missing or incomplete now
 
-- [ ] real inter-cell message flow is still partial: `MessageBus` exists, but cell execution is not actually driven by queued messages end-to-end
+- [x] planner/coordinator/executor/reviewer now drive a first-pass offensive workflow through queued orchestration state and message-bus delegation
+- [ ] real inter-cell message flow is still partial: cells now emit and consume routed work at a basic level, but tool-backed autonomous loops are not yet end-to-end
 - [x] `SubmissionQueue` now behaves as FIFO and stores session-aware envelopes
 - [x] `SessionActorQueue` now tracks per-session state and `submit()` uses the active local session id
 - [x] append-only orchestration event persistence is wired into runtime flow
@@ -626,31 +627,31 @@ Verify:
 
 ### E3. Status density
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] show objective
-- [ ] show subgoal
-- [ ] show selected harness
-- [ ] show provider/model
-- [ ] show connection health
+- [x] show objective
+- [x] show subgoal
+- [x] show selected harness
+- [x] show provider/model
+- [x] show connection health
 - [ ] show approval state
 - [ ] show resumed/scheduled state
 
 Definition of done:
 
-- [ ] an operator can understand current runtime state in one glance
+- [x] an operator can understand the core runtime state in one glance
 
 Verify:
 
-- [ ] manual operator review against the design goals
+- [x] manual operator review against the design goals
 
 ## Phase F: Harness MVPs
 
 ### F1. Generalist harness
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
@@ -674,22 +675,22 @@ Status: `pending`
 
 Tasks:
 
-- [ ] implement recon/exploit/review decomposition
-- [ ] implement evidence expectations
-- [ ] implement high-signal next-step narrowing
-- [ ] define challenge-type classification
-- [ ] define artifact expectations for flags, exploit notes, and scripts
-- [ ] define CTF-first tool and runtime assumptions
+- [x] implement recon/exploit/review decomposition
+- [x] implement evidence expectations
+- [x] implement high-signal next-step narrowing
+- [x] define challenge-type classification
+- [x] define artifact expectations for flags, exploit notes, and scripts
+- [x] define CTF-first tool and runtime assumptions
 
 ### F4. Pentest harness
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] implement scoped offensive workflow decomposition
+- [x] implement scoped offensive workflow decomposition
 - [ ] implement capability and approval emphasis
-- [ ] implement reporting artifact expectations
+- [x] implement reporting artifact expectations
 
 Definition of done for Phase F:
 

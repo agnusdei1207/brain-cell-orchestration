@@ -286,6 +286,16 @@ impl Blackboard {
         state.objective.clone()
     }
 
+    pub fn update_objective<F>(&self, mutator: F)
+    where
+        F: FnOnce(&mut bco_core::Objective),
+    {
+        let mut state = self.state.write().unwrap();
+        if let Some(objective) = state.objective.as_mut() {
+            mutator(objective);
+        }
+    }
+
     pub fn add_cell(&self, cell: CellIdentity) {
         let mut state = self.state.write().unwrap();
         let cell_state = CellState {
@@ -339,6 +349,11 @@ impl Blackboard {
         state.next_actions.pop()
     }
 
+    pub fn next_actions(&self) -> Vec<bco_core::NextAction> {
+        let state = self.state.read().unwrap();
+        state.next_actions.clone()
+    }
+
     pub fn get_active_cells(&self) -> Vec<CellId> {
         let state = self.state.read().unwrap();
         state.cells
@@ -351,6 +366,11 @@ impl Blackboard {
     pub fn get_children(&self, parent_id: CellId) -> Vec<CellId> {
         let state = self.state.read().unwrap();
         state.lineage.get(&parent_id).cloned().unwrap_or_default()
+    }
+
+    pub fn cell_states(&self) -> Vec<CellState> {
+        let state = self.state.read().unwrap();
+        state.cells.values().cloned().collect()
     }
 
     pub fn shutdown_subtree(&self, root_id: CellId) {
@@ -1553,6 +1573,7 @@ pub enum OrchestrationEvent {
     ObjectiveProgress { id: ObjectiveId, status: ProgressStatus },
     ObjectiveCompleted { id: ObjectiveId },
     ObjectiveFailed { id: ObjectiveId, error: String },
+    ObjectivePlanReady { id: ObjectiveId, steps: Vec<String> },
 
     /// Turn events
     TurnSubmitted { objective_id: ObjectiveId },
@@ -2071,10 +2092,14 @@ impl OrchestratorRuntime {
     fn handle_operator_input(&self, orch: &mut BrainCellOrchestrator, input: OperatorInput) -> Result<(), RuntimeError> {
         match input {
             OperatorInput::Execute { intent } => {
-                let objective = Objective::new(intent, RiskProfile::Moderate);
+                let harness_kind = orch.registry.resolve(&intent);
+                let objective = Objective::new(intent.clone(), RiskProfile::Moderate);
                 let objective_id = objective.id;
                 self.blackboard.set_objective(objective);
-                orch.emit_event(OrchestrationEvent::ObjectiveCreated { id: objective_id });
+                self.seed_core_cells(orch);
+                self.plan_offensive_workflow(orch, objective_id, harness_kind, &intent);
+                self.coordinate_execution(orch, objective_id);
+                self.review_objective(orch, objective_id);
             }
             OperatorInput::Interrupt => {
                 // Request cancellation on all active cells
@@ -2105,6 +2130,152 @@ impl OrchestratorRuntime {
             }
         }
         Ok(())
+    }
+
+    fn seed_core_cells(&self, orch: &mut BrainCellOrchestrator) {
+        let cells = [
+            PlannerCell::new(None).identity,
+            CoordinatorCell::new(None).identity,
+            ExecutorCell::new(None).identity,
+            ReviewerCell::new(None).identity,
+        ];
+
+        for cell in cells {
+            self.blackboard.add_cell(cell.clone());
+            let cell_type = match cell.cell_type {
+                CellType::Planner => "planner",
+                CellType::Coordinator => "coordinator",
+                CellType::Executor => "executor",
+                CellType::Reviewer => "reviewer",
+                CellType::Specialist(name) => name,
+            };
+            orch.emit_event(OrchestrationEvent::CellSpawned {
+                cell: cell.id,
+                parent: cell.parent,
+                cell_type,
+            });
+        }
+    }
+
+    fn plan_offensive_workflow(
+        &self,
+        orch: &mut BrainCellOrchestrator,
+        objective_id: ObjectiveId,
+        harness_kind: HarnessKind,
+        intent: &TaskIntent,
+    ) {
+        let plan_steps = offensive_plan_steps(harness_kind, intent);
+        let active_subgoal = plan_steps.first().cloned();
+        let mut subgoals = Vec::new();
+
+        for (index, step) in plan_steps.iter().enumerate() {
+            let mut subgoal = bco_core::Subgoal::new(step.clone(), None);
+            if index == 0 {
+                subgoal.state = bco_core::ObjectiveState::Active;
+                subgoal.progress = ProgressStatus::InProgress;
+            }
+            subgoals.push(subgoal);
+            self.blackboard.push_next_action(
+                bco_core::NextAction::new(step.clone()).with_cell("coordinator")
+            );
+        }
+
+        self.blackboard.update_objective(|objective| {
+            objective.state = bco_core::ObjectiveState::Active;
+            objective.progress = ProgressStatus::InProgress;
+            objective.subgoals = subgoals;
+            objective.next_action = active_subgoal
+                .clone()
+                .map(|step| bco_core::NextAction::new(step).with_cell("coordinator"));
+        });
+
+        if let Some(planner) = self.find_cell(CellType::Planner) {
+            self.blackboard.update_cell_status(planner, CellStatus::Planning);
+            self.blackboard.update_cell_status(planner, CellStatus::Completed);
+        }
+
+        orch.emit_event(OrchestrationEvent::ObjectiveCreated { id: objective_id });
+        orch.emit_event(OrchestrationEvent::ObjectivePlanReady {
+            id: objective_id,
+            steps: plan_steps,
+        });
+        orch.emit_event(OrchestrationEvent::ObjectiveProgress {
+            id: objective_id,
+            status: ProgressStatus::InProgress,
+        });
+    }
+
+    fn coordinate_execution(&self, orch: &mut BrainCellOrchestrator, objective_id: ObjectiveId) {
+        let next_action = self.blackboard.next_actions().into_iter().next();
+
+        if let Some(coordinator) = self.find_cell(CellType::Coordinator) {
+            self.blackboard.update_cell_status(coordinator, CellStatus::Coordinating);
+        }
+
+        if let Some(executor) = self.find_cell(CellType::Executor) {
+            self.blackboard.update_cell_status(executor, CellStatus::Executing);
+        }
+
+        if let Some(action) = next_action {
+            if let (Some(coordinator), Some(executor)) =
+                (self.find_cell(CellType::Coordinator), self.find_cell(CellType::Executor))
+            {
+                self.message_bus.send(InterCellMessage::new(
+                    coordinator,
+                    executor,
+                    CellMessageContent::Request {
+                        action: action.description.clone(),
+                        payload: objective_id.to_string(),
+                    },
+                    DeliveryMode::TriggerNow,
+                ));
+                orch.emit_event(OrchestrationEvent::InteractionBegin {
+                    from: coordinator,
+                    to: executor,
+                });
+                orch.emit_event(OrchestrationEvent::InteractionEnd {
+                    from: coordinator,
+                    to: executor,
+                });
+            }
+        }
+
+        if let Some(coordinator) = self.find_cell(CellType::Coordinator) {
+            self.blackboard.update_cell_status(coordinator, CellStatus::Completed);
+        }
+    }
+
+    fn review_objective(&self, orch: &mut BrainCellOrchestrator, objective_id: ObjectiveId) {
+        if let Some(reviewer) = self.find_cell(CellType::Reviewer) {
+            self.blackboard.update_cell_status(reviewer, CellStatus::Reviewing);
+        }
+
+        let next_action = self
+            .blackboard
+            .next_actions()
+            .into_iter()
+            .next()
+            .map(|action| action.with_cell("executor"));
+        self.blackboard.update_objective(|objective| {
+            objective.next_action = next_action;
+        });
+
+        if let Some(executor) = self.find_cell(CellType::Executor) {
+            self.blackboard.update_cell_status(executor, CellStatus::Completed);
+        }
+        if let Some(reviewer) = self.find_cell(CellType::Reviewer) {
+            self.blackboard.update_cell_status(reviewer, CellStatus::Completed);
+        }
+
+        orch.emit_event(OrchestrationEvent::TurnCompleted { objective_id });
+    }
+
+    fn find_cell(&self, cell_type: CellType) -> Option<CellId> {
+        self.blackboard
+            .cell_states()
+            .into_iter()
+            .find(|state| state.identity.cell_type == cell_type)
+            .map(|state| state.identity.id)
     }
 
     /// Get the blackboard for UI display
@@ -2159,6 +2330,158 @@ impl OrchestratorRuntime {
 
     pub fn schedule_pending_work(&self, work: PendingWork) {
         self.autonomy_scheduler.add_pending_work(work);
+    }
+
+    pub fn build_tui_state(&self, objective: &str) -> bco_tui::TuiState {
+        let mut state = bco_tui::TuiState::with_objective(objective);
+
+        if let Some(objective) = self.blackboard.get_objective() {
+            if let Some(active_subgoal) = objective.active_subgoal() {
+                state.status.subgoal = Some(active_subgoal.description.clone());
+            }
+            state.current_plan = objective
+                .subgoals
+                .iter()
+                .map(|subgoal| {
+                    format!(
+                        "[{}] {}",
+                        match subgoal.state {
+                            bco_core::ObjectiveState::Active => "active",
+                            bco_core::ObjectiveState::Completed => "done",
+                            bco_core::ObjectiveState::Blocked => "blocked",
+                            bco_core::ObjectiveState::Failed => "failed",
+                            _ => "pending",
+                        },
+                        subgoal.description
+                    )
+                })
+                .collect();
+        }
+
+        state.active_cells = self
+            .blackboard
+            .cell_states()
+            .into_iter()
+            .map(|cell| bco_tui::CellDisplay {
+                name: match cell.identity.cell_type {
+                    CellType::Planner => "planner".to_string(),
+                    CellType::Coordinator => "coordinator".to_string(),
+                    CellType::Executor => "executor".to_string(),
+                    CellType::Reviewer => "reviewer".to_string(),
+                    CellType::Specialist(name) => name.to_string(),
+                },
+                status: match cell.status {
+                    CellStatus::Idle => "idle".to_string(),
+                    CellStatus::Planning => "planning".to_string(),
+                    CellStatus::Coordinating => "coordinating".to_string(),
+                    CellStatus::Executing => "executing".to_string(),
+                    CellStatus::Reviewing => "reviewing".to_string(),
+                    CellStatus::WaitingApproval => "waiting".to_string(),
+                    CellStatus::Completed => "completed".to_string(),
+                    CellStatus::Failed => "failed".to_string(),
+                    CellStatus::Cancelled => "cancelled".to_string(),
+                },
+            })
+            .collect();
+
+        state.pending_approvals = self
+            .blackboard
+            .get_pending_approvals()
+            .into_iter()
+            .map(|approval| bco_tui::ApprovalDisplay {
+                risk: approval.risk.as_str().to_string(),
+                action: approval.action,
+                requested_at: approval.requested_at.format("%H:%M:%S").to_string(),
+            })
+            .collect();
+
+        state.transcript.extend(self.render_transcript_events());
+        state
+    }
+
+    fn render_transcript_events(&self) -> Vec<String> {
+        self.orchestrator
+            .read()
+            .unwrap()
+            .event_queue
+            .events
+            .iter()
+            .map(event_to_transcript_line)
+            .collect()
+    }
+}
+
+fn offensive_plan_steps(harness_kind: HarnessKind, intent: &TaskIntent) -> Vec<String> {
+    match harness_kind {
+        HarnessKind::Ctf => vec![
+            "Classify the challenge and constraints".to_string(),
+            "Run targeted recon and artifact discovery".to_string(),
+            "Develop the shortest viable solve path".to_string(),
+            "Capture the flag and preserve evidence".to_string(),
+        ],
+        HarnessKind::Pentest => vec![
+            "Confirm target scope, assumptions, and guardrails".to_string(),
+            "Enumerate attack surface and high-signal findings".to_string(),
+            "Chain access, escalation, or objective paths".to_string(),
+            "Document evidence, impact, and next operator actions".to_string(),
+        ],
+        HarnessKind::Coding => vec![
+            "Inspect the codebase and isolate the objective".to_string(),
+            "Design the smallest safe change set".to_string(),
+            "Implement and verify the change".to_string(),
+            "Review regressions and summarize outcome".to_string(),
+        ],
+        HarnessKind::Generalist => {
+            let objective = intent.objective().to_lowercase();
+            if objective.contains("red team")
+                || objective.contains("adversary")
+                || objective.contains("exploit")
+                || objective.contains("recon")
+                || objective.contains("phishing")
+            {
+                vec![
+                    "Frame the offensive objective and constraints".to_string(),
+                    "Enumerate access paths, tooling, and signals".to_string(),
+                    "Execute the highest-confidence path".to_string(),
+                    "Review evidence, persistence, and follow-up actions".to_string(),
+                ]
+            } else {
+                vec![
+                    "Understand the task".to_string(),
+                    "Plan the next steps".to_string(),
+                    "Execute the highest-signal action".to_string(),
+                    "Review and summarize".to_string(),
+                ]
+            }
+        }
+    }
+}
+
+fn event_to_transcript_line(event: &OrchestrationEvent) -> String {
+    match event {
+        OrchestrationEvent::ObjectiveCreated { id } => format!("[objective] created {}", id),
+        OrchestrationEvent::ObjectivePlanReady { steps, .. } => {
+            format!("[planner] {}", steps.join(" -> "))
+        }
+        OrchestrationEvent::ObjectiveProgress { status, .. } => {
+            format!("[objective] progress {}", status.as_str())
+        }
+        OrchestrationEvent::CellSpawned { cell_type, .. } => format!("[cell] spawned {}", cell_type),
+        OrchestrationEvent::InteractionBegin { .. } => "[coord] delegated work to executor".to_string(),
+        OrchestrationEvent::TurnSubmitted { objective_id } => format!("[turn] submitted {}", objective_id),
+        OrchestrationEvent::TurnCompleted { objective_id } => format!("[turn] completed {}", objective_id),
+        OrchestrationEvent::ModelSwitch { to, .. } => format!("[model] switched to {}", to),
+        OrchestrationEvent::ApprovalRequested { action, .. } => format!("[approval] requested {}", action),
+        OrchestrationEvent::ApprovalGranted { .. } => "[approval] granted".to_string(),
+        OrchestrationEvent::ApprovalDenied { reason, .. } => format!("[approval] denied {}", reason),
+        OrchestrationEvent::ObjectiveCompleted { id } => format!("[objective] completed {}", id),
+        OrchestrationEvent::ObjectiveFailed { error, .. } => format!("[objective] failed {}", error),
+        OrchestrationEvent::CellCompleted { cell } => format!("[cell] completed {}", cell),
+        OrchestrationEvent::CellFailed { error, .. } => format!("[cell] failed {}", error),
+        OrchestrationEvent::CellCancelled { cell } => format!("[cell] cancelled {}", cell),
+        OrchestrationEvent::CellInterrupted { cell } => format!("[cell] interrupted {}", cell),
+        OrchestrationEvent::InteractionEnd { .. } => "[coord] executor returned".to_string(),
+        OrchestrationEvent::TurnAborted { reason, .. } => format!("[turn] aborted {}", reason),
     }
 }
 

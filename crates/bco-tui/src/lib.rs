@@ -241,6 +241,10 @@ impl StatusInfo {
             parts.push(format!("h:{}", h));
         }
 
+        if let Some(ref p) = self.provider {
+            parts.push(format!("p:{}", p));
+        }
+
         if let Some(ref m) = self.model {
             parts.push(format!("m:{}", m));
         }

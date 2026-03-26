@@ -9,7 +9,7 @@ use bco_orchestrator::{
     ExecutionContext, CellIdentity, CellType,
 };
 use bco_session::{SessionBootstrap, SessionMeta, SessionState};
-use bco_tui::{TuiBlueprint, TuiState};
+use bco_tui::{TuiBlueprint, TuiState, ConnectionHealth};
 use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
 use std::fs;
@@ -182,9 +182,9 @@ fn exec_command(objective: &[String]) {
         }
     }
 
-    // Create TUI state and run
-    let mut state = TuiState::with_objective(&intent.objective());
+    let mut state = runtime.build_tui_state(intent.objective());
     state.status.harness = Some(harness_name);
+    hydrate_model_status(&mut state);
     state.footer_hint = "Enter: send │ /help: commands │ Ctrl+C: interrupt";
 
     // Run TUI
@@ -571,5 +571,26 @@ fn save_current_model(model: &str) -> bool {
         fs::write(&config_path, json).is_ok()
     } else {
         false
+    }
+}
+
+fn hydrate_model_status(state: &mut TuiState) {
+    let registry = load_provider_registry();
+
+    if let Ok(model) = load_current_model() {
+        state.status.model = Some(model.clone());
+        if let Ok(model_ref) = ModelRef::parse(&model) {
+            let provider_name = model_ref.provider().as_str().to_string();
+            state.status.provider = Some(provider_name.clone());
+            state.status.connection_health = registry
+                .get(&provider_name)
+                .map(|profile| match profile.state {
+                    ConnectionState::Connected => ConnectionHealth::Connected,
+                    ConnectionState::Disconnected => ConnectionHealth::Disconnected,
+                    ConnectionState::Connecting => ConnectionHealth::Unknown,
+                    ConnectionState::Error => ConnectionHealth::Error,
+                })
+                .unwrap_or(ConnectionHealth::Unknown);
+        }
     }
 }
