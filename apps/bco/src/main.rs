@@ -434,7 +434,22 @@ fn approval_command(
                         plan.steps.len(),
                     );
                     let _ = append_plan_snapshot(&session_dir, &plan.objective_id, &plan.steps, next_index);
+                    if next_index >= plan.steps.len() {
+                        let _ = update_session_state_in_dir(
+                            &session_dir,
+                            &snapshot.meta,
+                            SessionState::Completed,
+                        );
+                    } else {
+                        let _ = update_session_state_in_dir(
+                            &session_dir,
+                            &snapshot.meta,
+                            SessionState::Active,
+                        );
+                    }
                 }
+            } else {
+                let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Paused);
             }
 
             println!(
@@ -950,6 +965,23 @@ fn update_session_state(session: &SessionBootstrap, state: SessionState) {
         let path = session.layout().session_json();
         let _ = fs::write(path, json);
     }
+}
+
+fn update_session_state_in_dir(
+    session_dir: &PathBuf,
+    existing: &SessionMeta,
+    state: SessionState,
+) -> Result<(), String> {
+    let meta = SessionMeta {
+        id: existing.id,
+        created_at: existing.created_at,
+        profile: existing.profile.clone(),
+        state,
+    };
+    let json = serde_json::to_string_pretty(&meta)
+        .map_err(|e| format!("Failed to serialize session meta: {}", e))?;
+    fs::write(session_dir.join("session.json"), json)
+        .map_err(|e| format!("Failed to write session.json: {}", e))
 }
 
 fn load_provider_registry() -> ProviderRegistry {
