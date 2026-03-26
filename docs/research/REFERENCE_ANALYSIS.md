@@ -107,6 +107,14 @@ Binary-level note:
 - Memory, hooks, automation, and wakeup behavior are treated as product primitives.
 - Flexible connector mindset without collapsing all capability into the core.
 - Clear bias toward operator-controlled power rather than hidden autonomy.
+- ACP control plane exists as a distinct runtime management layer.
+- Per-session actor queue serialization prevents the same session from racing itself.
+- Auth profile rotation and cooldown logic are treated as first-class runtime behavior.
+- Failover policy is reason-aware rather than a single generic retry path.
+- Session store writeback captures runtime model, usage, compaction, and abort state.
+- Hook system turns automation into an explicit evented extension point.
+- Session memory capture converts completed sessions into durable workspace memory artifacts.
+- Resume and spawn semantics exist even across ACP and embedded runtime boundaries.
 
 ### Adopt directly
 
@@ -114,18 +122,28 @@ Binary-level note:
 - Durable memory and checkpoint concepts.
 - Lean core plus pluggable integrations.
 - Safe defaults with visible high-power overrides.
+- Per-session serialized actor queue for mutating operations.
+- Reason-aware failover and retry categorization.
+- Runtime auth profile state with cooldowns and recovery.
+- Evented hooks for automation and memory flushes.
+- Session-store writeback after runs.
 
 ### Adapt, not copy
 
 - Avoid becoming a messaging-channel platform.
 - Avoid an oversized plugin surface before the runtime contracts stabilize.
 - Keep autonomy subordinate to orchestration and policy.
+- Avoid importing ACP wholesale before local contracts stabilize.
 
 ### Concrete implications
 
 - Add a future `bco-autonomy` crate for wakeups and scheduled work.
 - Add a future `bco-memory` crate for durable summaries and retrieval.
 - Introduce checkpoint files and pending-work journals early.
+- Add per-session queueing so one session cannot interleave conflicting mutations.
+- Add failure reason taxonomy rather than one generic retry bucket.
+- Persist post-run session metadata such as active model, token usage, abort status, and compaction count.
+- Add hook points for session reset, resume, and summarization events.
 
 ## OpenCode
 
@@ -136,6 +154,10 @@ Binary-level note:
 - Model identity uses a stable `provider/model` shape.
 - Runtime includes both TUI and client/server behavior.
 - Agent definitions can carry model and permission profiles.
+- Workspace/control-plane split keeps the terminal UI from being the only client.
+- Event bus and server routes indicate the runtime is built to be remotely driven.
+- Built-in agent modes encode permission posture directly into agent definitions.
+- System prompt varies by model family, which is a practical provider/model adaptation layer.
 
 ### Adopt directly
 
@@ -163,6 +185,8 @@ Binary-level note:
 - Compact terminal-first UI.
 - Strong command-line surface for session continuation, agents, permissions, and tools.
 - Operator-facing knobs are visible instead of hidden in a GUI.
+- Native executable packaging gives a tight end-user install and startup experience.
+- Session-oriented flags show a strong preference for resumable, explicitly configurable work.
 
 ### Adopt directly
 
@@ -210,6 +234,18 @@ At any point, the runtime should be able to show:
 
 - High-risk or multi-step execution must be reconstructible from session artifacts.
 
+### Rule 6: One session must not race itself
+
+- Mutating work for the same session should be serialized through a session actor queue or equivalent.
+
+### Rule 7: Retry logic must be reason-aware
+
+- Rate limits, overload, auth failure, permanent config errors, and model-not-found should not all behave the same.
+
+### Rule 8: Post-run state must write back to session metadata
+
+- Active model, usage, abort status, and compaction or recovery counters should survive the run.
+
 ## Implementation Checklist Derived From Analysis
 
 - Add `ObjectiveState`, `Subgoal`, and `NextAction` types.
@@ -220,6 +256,10 @@ At any point, the runtime should be able to show:
 - Add spawn-depth or lane-depth guardrails.
 - Add explicit runtime service container or dependency injection boundary.
 - Add submission queue and event queue concepts.
+- Add per-session serialized mutation queue.
+- Add failover reason taxonomy and reason-aware retry policy.
+- Add session metadata writeback for model, usage, abort, and recovery state.
+- Add hook points for reset, resume, summarization, and memory flush workflows.
 - Define `Harness` trait with policy and preferred model profile hooks.
 - Define `ProviderRef` and `ModelRef` using `provider/model`.
 - Add `model_events.jsonl`, `pending_work.jsonl`, and checkpoint persistence.

@@ -59,6 +59,11 @@ This lets one runtime execute many classes of work without turning into a monoli
 - resumable session continuity
 - memory flush and durable local state patterns
 - wakeup, retry, pending-work, and automation primitives
+- per-session actor queue serialization
+- auth profile rotation and cooldown handling
+- reason-aware failover policy
+- hook-driven automation and session memory writeback
+- post-run session metadata writeback
 
 ### OpenCode traits to absorb
 
@@ -116,6 +121,7 @@ Design implication:
 - switch model/provider without restarting the whole runtime
 - execute through a common orchestration lifecycle
 - support typed inter-cell communication and subtree lifecycle control
+- serialize mutating work per session
 - preserve a clear task objective and subgoal chain across the full run
 - persist plan, evidence, approvals, and results
 - support resumable long-lived sessions
@@ -135,6 +141,8 @@ Design implication:
 - provider and model configuration must be hot-swappable
 - orchestration events must be emitted through typed queues
 - runtime services must be injected through explicit construction
+- retry and failover policy must be reason-aware
+- post-run session metadata must be persisted
 
 ## 8. Proposed Runtime Model
 
@@ -160,6 +168,7 @@ The runtime should be composed from eight layers:
 Cross-cutting runtime structures:
 
 - submission queue for inbound work
+- session actor queue for per-session serialization
 - event queue for outward observability
 - orchestrator control plane for lifecycle actions
 - service container for runtime dependencies
@@ -201,6 +210,7 @@ Required autonomy capabilities:
 - retry queues for transient failures
 - background follow-up work such as summarization or review
 - pending-work drains when fresh input or events arrive
+- hook-triggered automation on session lifecycle events
 
 Required persistence capabilities:
 
@@ -209,6 +219,7 @@ Required persistence capabilities:
 - durable memory summaries
 - pending-work journal
 - replayable session artifacts
+- persisted session metadata for model, usage, abort, and recovery state
 
 Safety rule:
 
@@ -225,6 +236,8 @@ Required capabilities:
 - live provider setup through a slash command such as `/connect openai`
 - support for remote providers and local model endpoints
 - model fallback policy without coupling the full runtime to one vendor
+- auth profile rotation and cooldown tracking
+- reason-aware failover behavior
 
 Operator UX goals:
 
@@ -278,6 +291,7 @@ Suggested append-only storage layout:
     orchestrator_events.jsonl
     cell_topology.jsonl
     model_events.jsonl
+    session_runtime.json
     pending_work.jsonl
     checkpoints/
     memory/
@@ -335,6 +349,7 @@ Implementation rule:
 - provider registry and `provider/model` parsing
 - command parser skeleton for interactive and headless modes
 - lineage tracking and subtree shutdown rules
+- session actor queue
 
 ### Phase 2: terminal UX
 
@@ -344,6 +359,7 @@ Implementation rule:
 - session resume
 - resumed and queued work indicators
 - `/model` and `/connect` command UX
+- session queue and connection health visibility
 
 ### Phase 3: domain execution
 
@@ -363,6 +379,7 @@ Implementation rule:
 - crash recovery coverage
 - model failover and reconnect coverage
 - spawn-depth and runaway-lane guardrail coverage
+- auth profile cooldown and recovery coverage
 
 ## 17. Engineering Standards
 

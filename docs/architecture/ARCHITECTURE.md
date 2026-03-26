@@ -16,6 +16,7 @@ Reference extraction details live in [REFERENCE_ANALYSIS.md](/Users/pf/workspace
 Operator
   -> TUI / CLI shell
   -> Submission queue
+  -> Session actor queue
   -> Intent classifier
   -> Objective tracker
   -> Harness resolver
@@ -29,6 +30,7 @@ Operator
   -> Autonomy scheduler / wake manager
   -> Session + evidence store
   -> Checkpoint + pending-work journal
+  -> Session metadata writeback
   -> Event queue
   -> Tool/runtime adapters
 ```
@@ -78,6 +80,7 @@ Operator
 - artifact manifests
 - report/export format
 - checkpoints and pending-work persistence
+- session metadata writeback for active model, usage, abort state, and recovery counters
 
 ### `crates/bco-tui`
 
@@ -86,6 +89,20 @@ Operator
 - overlays and command routing
 - terminal degradation strategy
 - Claude Code-inspired UI density only
+
+## Concurrency Contract
+
+Mutating work for the same session should be serialized.
+
+Recommended mechanism:
+
+- session actor queue keyed by session id
+
+Reason:
+
+- prevents conflicting writes
+- prevents overlapping resume/reset/mutate flows
+- makes runtime pending-state introspection easier
 
 ## Future Runtime Modules
 
@@ -210,6 +227,14 @@ Recommended data types:
 - `ConnectionProfile`
 - `ActiveModelState`
 - `ModelSwitchEvent`
+- `FailoverReason`
+- `AuthProfileState`
+
+The model layer should also maintain:
+
+- auth profile eligibility and cooldown state
+- reason-aware fallback policy
+- provider health or connection status snapshots
 
 ## Execution Contract
 
@@ -247,6 +272,7 @@ Persisted state should include:
 - queued pending work
 - memory summaries
 - model/provider transition log
+- session metadata summary for active model, usage, abort status, and compaction or recovery counters
 
 ## Observability Contract
 
@@ -296,12 +322,24 @@ It should support:
 - bounded retry
 - pending-work drains
 - background review or summarization
+- hook-triggered automation events
 
 It must not:
 
 - bypass approvals
 - mutate history destructively
 - ignore harness-specific policy
+
+Retry behavior should be reason-aware:
+
+- rate limit
+- overload
+- auth temporary failure
+- auth permanent failure
+- model not found
+- invalid format or config
+
+These should not collapse into one generic retry lane.
 
 ## UI Architecture
 

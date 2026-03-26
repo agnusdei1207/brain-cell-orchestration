@@ -171,6 +171,7 @@ Tasks:
 - [ ] add `orchestrator_events.jsonl`
 - [ ] add `cell_topology.jsonl`
 - [ ] add `model_events.jsonl`
+- [ ] add `session_runtime.json`
 - [ ] add `pending_work.jsonl`
 - [ ] add `checkpoints/`
 - [ ] add `memory/`
@@ -233,6 +234,26 @@ Verify:
 
 - [ ] tests cover resume and fork from fixture sessions
 
+### B4. Session serialization
+
+Status: `pending`
+
+Tasks:
+
+- [ ] add session actor queue keyed by session id
+- [ ] route mutating session operations through the queue
+- [ ] track pending count per session
+- [ ] expose queued state to runtime status
+
+Definition of done:
+
+- [ ] one session cannot race itself on reset, resume, writeback, or turn mutation
+- [ ] queue state can be inspected for observability
+
+Verify:
+
+- [ ] tests cover overlapping session operations
+
 ## Phase C: Model Connectivity
 
 ### C1. Provider registry
@@ -246,6 +267,7 @@ Tasks:
 - [ ] support remote provider descriptors
 - [ ] support local endpoint descriptors
 - [ ] define auth loading boundary
+- [ ] define auth profile state and cooldown model
 
 Definition of done:
 
@@ -288,6 +310,7 @@ Tasks:
 - [ ] support active model switch without destroying session state
 - [ ] support harness-aware recommended model view
 - [ ] support fallback model selection
+- [ ] support reason-aware failover behavior
 
 Definition of done:
 
@@ -297,6 +320,7 @@ Definition of done:
 Verify:
 
 - [ ] tests cover valid switch, invalid switch, and fallback selection
+- [ ] tests cover rate-limit vs auth vs model-not-found behavior
 
 ## Phase D: Orchestration Runtime
 
@@ -388,6 +412,26 @@ Definition of done:
 Verify:
 
 - [ ] at least one orchestrator test uses mocked services
+
+### D5. Runtime writeback
+
+Status: `pending`
+
+Tasks:
+
+- [ ] persist active model after a run
+- [ ] persist token or usage summary after a run
+- [ ] persist abort status after a run
+- [ ] persist compaction or recovery counters after a run
+
+Definition of done:
+
+- [ ] session runtime metadata survives restart
+- [ ] operators can inspect recent runtime state without replaying full logs
+
+Verify:
+
+- [ ] tests cover writeback after success, abort, and failover
 
 ## Phase E: TUI MVP
 
@@ -516,6 +560,7 @@ Tasks:
 - [ ] implement scheduled wake primitive
 - [ ] implement bounded retry policy
 - [ ] implement pending-work drain loop
+- [ ] implement reason-aware retry classification
 
 ### G2. Memory and checkpoints
 
@@ -527,6 +572,7 @@ Tasks:
 - [ ] checkpoint approval state
 - [ ] flush durable memory summaries
 - [ ] define memory compaction or rollover policy
+- [ ] define session lifecycle hook points for memory flush
 
 ### G3. Failure handling
 
