@@ -42,6 +42,10 @@ crates/
 docs/
   PLAN.md              detailed project plan
   ARCHITECTURE.md      target architecture
+  IMPLEMENTATION_CHECKLIST.md
+                       execution checklist for implementation
+  REFERENCE_ANALYSIS.md
+                       extracted strengths and adoption rules
   ROADMAP.md           phased delivery roadmap
 Dockerfile             canonical build/runtime image
 ```
@@ -63,3 +67,5 @@ docker run --rm brain-cell-orchestration
 ## Current Status
 
 This repository is intentionally at bootstrap stage. The current implementation compiles as a minimal Rust workspace and prints the initial orchestration blueprint. The detailed build plan and product scope live in [docs/PLAN.md](/Users/pf/workspace/brain-cell-orchestration/docs/PLAN.md).
+
+For actual build execution, use [IMPLEMENTATION_CHECKLIST.md](/Users/pf/workspace/brain-cell-orchestration/docs/IMPLEMENTATION_CHECKLIST.md) as the working runbook.

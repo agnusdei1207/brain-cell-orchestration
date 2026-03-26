@@ -79,7 +79,20 @@ The short version:
 - `opencode` is the main model-connectivity reference
 - `claude-code` is UI only
 
-## 5. Non-Goals For Phase 0
+## 5. Implementation Environment Assumption
+
+Primary implementation assumption:
+
+- the project may be built interactively through `claude-code`
+- the working model may be `minimax-m2.7`
+
+Design implication:
+
+- the plan must be explicit enough that a weaker or cheaper implementation model can still make steady progress
+- abstractions must be defined before large implementation bursts
+- checklists and definition-of-done criteria matter more than aspirational prose
+
+## 6. Non-Goals For Phase 0
 
 - no GUI or web dashboard
 - no TypeScript runtime
@@ -87,7 +100,7 @@ The short version:
 - no multi-tenant SaaS control plane
 - no premature plugin marketplace
 
-## 6. Core Requirements
+## 7. Core Requirements
 
 ### Functional
 
@@ -113,7 +126,7 @@ The short version:
 - durable restart-safe persistence semantics
 - provider and model configuration must be hot-swappable
 
-## 7. Proposed Runtime Model
+## 8. Proposed Runtime Model
 
 The runtime should be composed from eight layers:
 
@@ -134,7 +147,7 @@ The runtime should be composed from eight layers:
 8. `operator layer`
    Expose status, approvals, transcript, memory, and intervention controls in TUI.
 
-## 8. Harness Strategy
+## 9. Harness Strategy
 
 Each harness should define:
 
@@ -160,7 +173,7 @@ Later, hybrid harness composition can support flows like:
 - pentest + report drafting
 - CTF + reverse engineering
 
-## 9. Autonomy And Persistence
+## 10. Autonomy And Persistence
 
 The system should explicitly model the OpenClaw-style lesson that good autonomy depends on durable state, predictable wake behavior, and bounded retries.
 
@@ -184,7 +197,7 @@ Safety rule:
 
 - autonomy must stay subordinate to capability policy, approval policy, and harness-specific safety posture
 
-## 10. Model Connectivity
+## 11. Model Connectivity
 
 The runtime should adopt the OpenCode lesson that model operations must stay easy while the orchestration layer stays stable.
 
@@ -202,7 +215,7 @@ Operator UX goals:
 - connection state should be inspectable in-session
 - harness selection and model selection should remain separate decisions
 
-## 11. TUI Plan
+## 12. TUI Plan
 
 The TUI should learn from Claude Code only at the UI/UX level, not at the orchestration philosophy level.
 
@@ -232,7 +245,7 @@ Planned primary slash commands:
 - `/resume`
 - `/approvals`
 
-## 12. File and Data Model
+## 13. File and Data Model
 
 Suggested append-only storage layout:
 
@@ -254,7 +267,7 @@ Suggested append-only storage layout:
 
 The session layer should support replay, export, cross-turn continuity, and restart-safe resume.
 
-## 13. Command Surface Plan
+## 14. Command Surface Plan
 
 Interactive command targets:
 
@@ -268,7 +281,17 @@ Interactive command targets:
 
 The command surface intentionally follows the Codex and OpenCode lesson that session operations and model operations should be visible at the top level.
 
-## 14. Phased Delivery
+## 15. Execution Checklist
+
+The practical build checklist lives in [IMPLEMENTATION_CHECKLIST.md](/Users/pf/workspace/brain-cell-orchestration/docs/IMPLEMENTATION_CHECKLIST.md).
+
+This file is not optional process overhead. It is part of the product plan.
+
+Implementation rule:
+
+- no new milestone should begin until the previous milestone's verification items are complete
+
+## 16. Phased Delivery
 
 ### Phase 0: bootstrap
 
@@ -317,7 +340,7 @@ The command surface intentionally follows the Codex and OpenCode lesson that ses
 - crash recovery coverage
 - model failover and reconnect coverage
 
-## 15. Engineering Standards
+## 17. Engineering Standards
 
 - every crate has a narrow responsibility
 - runtime behavior must be observable from logs and session artifacts
@@ -333,8 +356,9 @@ Additional standards from the reference analysis:
 - keep UI separate from orchestration state
 - prefer explicit operator controls over magic
 - keep plugin and integration surfaces out of the core until contracts are stable
+- write plans and checklists so an implementation model with narrower reasoning can still execute accurately
 
-## 16. Immediate Next Work
+## 18. Immediate Next Work
 
 - implement workspace-wide shared types for task, policy, and event flow
 - define harness trait and registry contract
@@ -345,3 +369,4 @@ Additional standards from the reference analysis:
 - replace bootstrap stdout flow with a real command parser
 - introduce `ratatui` once orchestration state shape is stable
 - define top-level CLI commands `resume`, `fork`, `exec`, `review`, `providers`, and `models`
+- keep [IMPLEMENTATION_CHECKLIST.md](/Users/pf/workspace/brain-cell-orchestration/docs/IMPLEMENTATION_CHECKLIST.md) aligned with reality after each implementation slice
