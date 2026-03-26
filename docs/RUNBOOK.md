@@ -62,7 +62,7 @@ Verification note:
 ### Confirmed implemented now
 
 - [x] Rust workspace exists
-- [x] top-level CLI subcommands exist for `exec`, `review`, `resume`, `fork`, `providers`, `models`
+- [x] top-level CLI subcommands exist for `exec`, `review`, `resume`, `fork`, `approve`, `deny`, `providers`, `models`
 - [x] objective and risk-related core types exist
 - [x] harness contract types and placeholder harnesses exist
 - [x] orchestrator crate contains first-pass control-plane and cell identity types
@@ -87,6 +87,7 @@ Verification note:
 - [x] `approvals.jsonl` is now written for approval-requested states
 - [x] `review` and `resume` now rebuild state from persisted session artifacts instead of reconstructing everything from ad hoc CLI defaults
 - [x] approval-gated offensive objectives now surface waiting coordinator/executor state in both live TUI and resumed sessions
+- [x] `approve` and `deny` can now resolve pending approval state through local session artifacts
 - [ ] reason-aware failover is not verified as integrated runtime behavior
 - [x] auth rotation is intentionally out of scope for the current local-first build
 - [ ] hook-driven automation and memory flushes need end-to-end verification, not just type presence

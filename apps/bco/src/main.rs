@@ -52,6 +52,23 @@ enum Commands {
         /// Session ID to fork
         session_id: Option<String>,
     },
+    /// Grant a pending approval request for a session
+    Approve {
+        /// Approval request ID
+        request_id: String,
+        /// Session ID to operate on, defaults to the most recent session
+        session_id: Option<String>,
+    },
+    /// Deny a pending approval request for a session
+    Deny {
+        /// Approval request ID
+        request_id: String,
+        /// Session ID to operate on, defaults to the most recent session
+        session_id: Option<String>,
+        /// Denial reason
+        #[arg(trailing_var_arg = true)]
+        reason: Vec<String>,
+    },
     /// List and manage provider connections
     Providers {
         #[command(subcommand)]
@@ -113,6 +130,17 @@ fn main() {
         }
         Commands::Fork { session_id } => {
             fork_command(session_id.as_deref());
+        }
+        Commands::Approve { request_id, session_id } => {
+            approval_command(session_id.as_deref(), &request_id, true, None);
+        }
+        Commands::Deny { request_id, session_id, reason } => {
+            let reason = if reason.is_empty() {
+                "operator denied".to_string()
+            } else {
+                reason.join(" ")
+            };
+            approval_command(session_id.as_deref(), &request_id, false, Some(reason));
         }
         Commands::Providers { action } => {
             providers_command(action.as_ref());
@@ -326,6 +354,85 @@ fn fork_command(session_id: Option<&str>) {
             println!("  Fork created successfully.");
         }
         Err(e) => println!("  Error forking session: {}", e),
+    }
+}
+
+fn approval_command(
+    session_id: Option<&str>,
+    request_id: &str,
+    approved: bool,
+    reason: Option<String>,
+) {
+    let session_dir = if let Some(id) = session_id {
+        PathBuf::from(format!(".bco/sessions/{}", id))
+    } else {
+        match find_most_recent_session() {
+            Some(dir) => dir,
+            None => {
+                println!("No sessions found.");
+                return;
+            }
+        }
+    };
+
+    match load_session_snapshot(&session_dir) {
+        Ok(snapshot) => {
+            let pending = snapshot
+                .pending_approvals
+                .iter()
+                .find(|(_, _, _, id)| id == request_id);
+            let Some((risk, action, _requested_at, _id)) = pending else {
+                println!("Approval request '{}' not found in session {}.", request_id, snapshot.meta.id);
+                return;
+            };
+
+            let now = chrono::Utc::now();
+            let kind = if approved { "granted" } else { "denied" };
+            let approvals_entry = serde_json::json!({
+                "timestamp": now,
+                "kind": kind,
+                "request_id": request_id,
+                "action": serde_json::Value::Null,
+                "risk": serde_json::Value::Null,
+                "reason": reason.clone(),
+            });
+            let approvals_path = session_dir.join("approvals.jsonl");
+            let _ = append_jsonl_line(&approvals_path, &approvals_entry);
+
+            let event = if approved {
+                serde_json::json!({
+                    "timestamp": now,
+                    "event": { "ApprovalGranted": { "request_id": request_id } }
+                })
+            } else {
+                serde_json::json!({
+                    "timestamp": now,
+                    "event": { "ApprovalDenied": { "request_id": request_id, "reason": reason.clone().unwrap_or_else(|| "operator denied".to_string()) } }
+                })
+            };
+            let _ = append_jsonl_line(&session_dir.join("orchestrator_events.jsonl"), &event);
+
+            let transcript_line = if approved {
+                format!("[approval] granted {}", action)
+            } else {
+                format!(
+                    "[approval] denied {} ({})",
+                    action,
+                    reason.clone().unwrap_or_else(|| "operator denied".to_string())
+                )
+            };
+            let transcript = serde_json::json!({
+                "timestamp": now,
+                "line": transcript_line,
+            });
+            let _ = append_jsonl_line(&session_dir.join("transcript.jsonl"), &transcript);
+
+            println!(
+                "Approval {} for session {}: [{}] {}",
+                kind, snapshot.meta.id, risk, action
+            );
+        }
+        Err(error) => println!("  Error loading session: {}", error),
     }
 }
 
@@ -546,7 +653,7 @@ struct SessionSnapshot {
     transcript: Vec<String>,
     next_action: Option<String>,
     active_cells: Vec<(String, String)>,
-    pending_approvals: Vec<(String, String, String)>,
+    pending_approvals: Vec<(String, String, String, String)>,
 }
 
 impl SessionSnapshot {
@@ -565,7 +672,7 @@ impl SessionSnapshot {
         state.pending_approvals = self
             .pending_approvals
             .into_iter()
-            .map(|(risk, action, requested_at)| bco_tui::ApprovalDisplay {
+            .map(|(risk, action, requested_at, _request_id)| bco_tui::ApprovalDisplay {
                 risk,
                 action,
                 requested_at,
@@ -613,7 +720,7 @@ fn parse_session_artifacts(
         Vec<String>,
         Option<String>,
         Vec<(String, String)>,
-        Vec<(String, String, String)>,
+        Vec<(String, String, String, String)>,
     ),
     String,
 > {
@@ -684,11 +791,10 @@ fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, Str
     let events_path = session_dir.join("orchestrator_events.jsonl");
     let events_content = fs::read_to_string(&events_path)
         .map_err(|e| format!("Failed to read orchestrator events: {}", e))?;
-    let approvals_path = session_dir.join("approvals.jsonl");
-    let approvals_content = fs::read_to_string(&approvals_path).unwrap_or_default();
+    let pending_approvals = parse_pending_approvals(session_dir).unwrap_or_default();
 
     let turn_completed = events_content.lines().any(|line| line.contains("\"TurnCompleted\""));
-    let has_pending_approval = approvals_content.lines().any(|line| line.contains("\"kind\":\"requested\""));
+    let has_pending_approval = !pending_approvals.is_empty();
     let mut active_cells = Vec::new();
 
     for line in topology_content.lines() {
@@ -716,11 +822,11 @@ fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, Str
     Ok(active_cells)
 }
 
-fn parse_pending_approvals(session_dir: &PathBuf) -> Result<Vec<(String, String, String)>, String> {
+fn parse_pending_approvals(session_dir: &PathBuf) -> Result<Vec<(String, String, String, String)>, String> {
     let path = session_dir.join("approvals.jsonl");
     let content = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read approval log: {}", e))?;
-    let mut pending = std::collections::BTreeMap::<String, (String, String, String)>::new();
+    let mut pending = std::collections::BTreeMap::<String, (String, String, String, String)>::new();
 
     for line in content.lines() {
         if line.trim().is_empty() {
@@ -733,12 +839,14 @@ fn parse_pending_approvals(session_dir: &PathBuf) -> Result<Vec<(String, String,
         match entry.kind.as_str() {
             "requested" => {
                 if let (Some(action), Some(risk)) = (entry.action, entry.risk) {
+                    let request_id = entry.request_id.clone();
                     pending.insert(
-                        entry.request_id,
+                        request_id.clone(),
                         (
                             risk,
                             action,
                             entry.timestamp.format("%H:%M:%S").to_string(),
+                            request_id,
                         ),
                     );
                 }
@@ -777,8 +885,8 @@ fn print_session_snapshot(snapshot: &SessionSnapshot) {
     }
     if !snapshot.pending_approvals.is_empty() {
         println!("  Pending approvals:");
-        for (risk, action, requested_at) in &snapshot.pending_approvals {
-            println!("    [{}] {} at {}", risk, action, requested_at);
+        for (risk, action, requested_at, request_id) in &snapshot.pending_approvals {
+            println!("    [{}] {} at {} ({})", risk, action, requested_at, request_id);
         }
     }
 }
@@ -952,4 +1060,17 @@ struct ApprovalLogEntry {
     request_id: String,
     action: Option<String>,
     risk: Option<String>,
+}
+
+fn append_jsonl_line(path: &PathBuf, value: &serde_json::Value) -> Result<(), String> {
+    use std::io::Write;
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+    let line = serde_json::to_string(value)
+        .map_err(|e| format!("Failed to serialize jsonl line: {}", e))?;
+    writeln!(file, "{}", line)
+        .map_err(|e| format!("Failed to append {}: {}", path.display(), e))
 }

@@ -172,6 +172,7 @@ Current implementation note:
 
 - local session artifacts now include persisted `plan.jsonl`, `transcript.jsonl`, and `approvals.jsonl`
 - approval-gated offensive objectives already rehydrate as waiting sessions on `bco resume`
+- local operators can now resolve approval state with `bco approve` and `bco deny`
 - the next priority is not inventing more persistence types, but connecting those persisted states to richer autonomous execution
 
 ## 8. Proposed Runtime Model
