@@ -268,8 +268,14 @@ fn review_command(objective_id: Option<&str>) {
                             if let Some(ref model) = snapshot.runtime.active_model {
                                 println!("    model: {}", model);
                             }
+                            if !snapshot.pending_work.is_empty() {
+                                println!("    pending-work: {}", snapshot.pending_work.len());
+                            }
                             if !snapshot.pending_approvals.is_empty() {
                                 println!("    approvals: {}", snapshot.pending_approvals.len());
+                            }
+                            if snapshot.meta.state == SessionState::Paused {
+                                println!("    paused: operator action required before autonomous progress");
                             }
                         }
                     }
