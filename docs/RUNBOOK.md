@@ -88,6 +88,7 @@ Verification note:
 - [x] `review` and `resume` now rebuild state from persisted session artifacts instead of reconstructing everything from ad hoc CLI defaults
 - [x] approval-gated offensive objectives now surface waiting coordinator/executor state in both live TUI and resumed sessions
 - [x] `approve` and `deny` can now resolve pending approval state through local session artifacts
+- [x] `approve` now advances the persisted plan snapshot so `review`/`resume` move to the next actionable step
 - [ ] reason-aware failover is not verified as integrated runtime behavior
 - [x] auth rotation is intentionally out of scope for the current local-first build
 - [ ] hook-driven automation and memory flushes need end-to-end verification, not just type presence

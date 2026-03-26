@@ -427,6 +427,16 @@ fn approval_command(
             });
             let _ = append_jsonl_line(&session_dir.join("transcript.jsonl"), &transcript);
 
+            if approved {
+                if let Ok(plan) = load_latest_plan_entry(&session_dir) {
+                    let next_index = usize::min(
+                        plan.active_index.unwrap_or(0).saturating_add(1),
+                        plan.steps.len(),
+                    );
+                    let _ = append_plan_snapshot(&session_dir, &plan.objective_id, &plan.steps, next_index);
+                }
+            }
+
             println!(
                 "Approval {} for session {}: [{}] {}",
                 kind, snapshot.meta.id, risk, action
@@ -740,10 +750,29 @@ fn parse_session_artifacts(
 }
 
 fn parse_plan_log(session_dir: &PathBuf) -> Result<Vec<String>, String> {
+    let entry = load_latest_plan_entry(session_dir)?;
+    let active_index = entry.active_index.unwrap_or(0);
+    let mut plan_steps = Vec::new();
+
+    for (index, step) in entry.steps.iter().enumerate() {
+        let rendered = if index < active_index {
+            format!("[done] {}", step)
+        } else if index == active_index {
+            format!("[active] {}", step)
+        } else {
+            format!("[pending] {}", step)
+        };
+        plan_steps.push(rendered);
+    }
+
+    Ok(plan_steps)
+}
+
+fn load_latest_plan_entry(session_dir: &PathBuf) -> Result<PlanLogEntry, String> {
     let path = session_dir.join("plan.jsonl");
     let content = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read plan log: {}", e))?;
-    let mut plan_steps = Vec::new();
+    let mut latest = None;
 
     for line in content.lines() {
         if line.trim().is_empty() {
@@ -752,17 +781,10 @@ fn parse_plan_log(session_dir: &PathBuf) -> Result<Vec<String>, String> {
 
         let entry: PlanLogEntry = serde_json::from_str(line)
             .map_err(|e| format!("Failed to parse plan log line: {}", e))?;
-        for (index, step) in entry.steps.iter().enumerate() {
-            let rendered = if index == 0 {
-                format!("[active] {}", step)
-            } else {
-                format!("[pending] {}", step)
-            };
-            plan_steps.push(rendered);
-        }
+        latest = Some(entry);
     }
 
-    Ok(plan_steps)
+    latest.ok_or_else(|| "No plan entries found".to_string())
 }
 
 fn parse_transcript_log(session_dir: &PathBuf) -> Result<Vec<String>, String> {
@@ -1045,7 +1067,9 @@ struct TranscriptLogEntry {
 
 #[derive(Debug, Deserialize)]
 struct PlanLogEntry {
+    objective_id: String,
     steps: Vec<String>,
+    active_index: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1073,4 +1097,19 @@ fn append_jsonl_line(path: &PathBuf, value: &serde_json::Value) -> Result<(), St
         .map_err(|e| format!("Failed to serialize jsonl line: {}", e))?;
     writeln!(file, "{}", line)
         .map_err(|e| format!("Failed to append {}: {}", path.display(), e))
+}
+
+fn append_plan_snapshot(
+    session_dir: &PathBuf,
+    objective_id: &str,
+    steps: &[String],
+    active_index: usize,
+) -> Result<(), String> {
+    let entry = serde_json::json!({
+        "timestamp": chrono::Utc::now(),
+        "objective_id": objective_id,
+        "steps": steps,
+        "active_index": active_index,
+    });
+    append_jsonl_line(&session_dir.join("plan.jsonl"), &entry)
 }

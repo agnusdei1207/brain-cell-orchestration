@@ -1884,6 +1884,7 @@ struct PlanEntry {
     timestamp: chrono::DateTime<chrono::Utc>,
     objective_id: ObjectiveId,
     steps: Vec<String>,
+    active_index: usize,
 }
 
 /// Orchestrator runtime - wired execution loop
@@ -2016,6 +2017,7 @@ impl OrchestratorRuntime {
                         timestamp: now,
                         objective_id: id,
                         steps,
+                        active_index: 0,
                     };
                     let json = serde_json::to_string(&plan_entry)
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
