@@ -1,0 +1,14 @@
+[package]
+name = "bco-harness"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bco-core = { path = "../bco-core" }
+
+[lints]
+workspace = true
+

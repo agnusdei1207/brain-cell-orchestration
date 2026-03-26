@@ -1,0 +1,11 @@
+[package]
+name = "bco-tui"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+

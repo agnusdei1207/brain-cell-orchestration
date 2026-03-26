@@ -1,0 +1,18 @@
+[package]
+name = "bco"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bco-core = { path = "../../crates/bco-core" }
+bco-harness = { path = "../../crates/bco-harness" }
+bco-orchestrator = { path = "../../crates/bco-orchestrator" }
+bco-session = { path = "../../crates/bco-session" }
+bco-tui = { path = "../../crates/bco-tui" }
+
+[lints]
+workspace = true
+

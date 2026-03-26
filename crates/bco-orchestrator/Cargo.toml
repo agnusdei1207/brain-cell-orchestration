@@ -1,0 +1,17 @@
+[package]
+name = "bco-orchestrator"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+bco-core = { path = "../bco-core" }
+bco-harness = { path = "../bco-harness" }
+bco-session = { path = "../bco-session" }
+bco-tui = { path = "../bco-tui" }
+
+[lints]
+workspace = true
+
