@@ -546,14 +546,18 @@ fn continue_command(session_id: Option<&str>) {
             };
 
             let active_index = plan.active_index.unwrap_or(0);
-            if active_index >= plan.steps.len() {
+            let active_step = snapshot
+                .pending_work
+                .first()
+                .cloned()
+                .or_else(|| plan.steps.get(active_index).cloned());
+
+            let Some(active_step) = active_step else {
                 let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Completed);
                 let _ = rewrite_pending_work(&session_dir, &plan.objective_id, &[]);
                 println!("Session {} is already complete.", snapshot.meta.id);
                 return;
-            }
-
-            let active_step = plan.steps[active_index].clone();
+            };
             let now = chrono::Utc::now();
 
             let interaction_begin = serde_json::json!({
@@ -978,9 +982,15 @@ fn parse_session_artifacts(
     let transcript = parse_transcript_log(session_dir)?;
     let active_cells = parse_cell_states(session_dir)?;
     let pending_approvals = parse_pending_approvals(session_dir)?;
-    let next_action = plan_steps
-        .iter()
-        .find_map(|step| step.strip_prefix("[active] ").map(str::to_string))
+    let pending_work = parse_pending_work(session_dir).unwrap_or_default();
+    let next_action = pending_work
+        .first()
+        .cloned()
+        .or_else(|| {
+            plan_steps
+                .iter()
+                .find_map(|step| step.strip_prefix("[active] ").map(str::to_string))
+        })
         .or_else(|| {
             plan_steps
                 .iter()
