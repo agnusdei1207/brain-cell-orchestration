@@ -1035,12 +1035,140 @@ pub struct MemorySummary {
     pub timestamp: chrono::DateTime<chrono::Utc>,
 }
 
+// =============================================================================
+// Hook System - event-driven automation
+// =============================================================================
+
+/// Hook event types that can trigger automation
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HookEvent {
+    /// On checkpoint creation
+    OnCheckpoint,
+    /// On objective completion
+    OnComplete,
+    /// On objective failure
+    OnFail,
+    /// On approval requested
+    OnApprovalRequested,
+    /// On approval granted
+    OnApprovalGranted,
+    /// On model switch
+    OnModelSwitch,
+    /// On cell spawn
+    OnCellSpawn,
+    /// On cell complete
+    OnCellComplete,
+    /// On session start
+    OnSessionStart,
+    /// On session end
+    OnSessionEnd,
+    /// Rollover event (after N events)
+    OnRollover,
+}
+
+/// Hook action to perform
+#[derive(Debug, Clone)]
+pub enum HookAction {
+    /// Flush memory summary
+    FlushMemory,
+    /// Create checkpoint
+    CreateCheckpoint,
+}
+
+/// A registered hook
+#[derive(Debug, Clone)]
+pub struct Hook {
+    pub event: HookEvent,
+    pub action: HookAction,
+    pub enabled: bool,
+}
+
+impl Hook {
+    pub fn new(event: HookEvent, action: HookAction) -> Self {
+        Self { event, action, enabled: true }
+    }
+}
+
+/// Hook registry for automation
+#[derive(Debug)]
+pub struct HookRegistry {
+    hooks: StdRwLock<Vec<Hook>>,
+    event_counts: StdRwLock<HashMap<HookEvent, u32>>,
+}
+
+impl HookRegistry {
+    pub fn new() -> Self {
+        Self {
+            hooks: StdRwLock::new(Vec::new()),
+            event_counts: StdRwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Register a hook
+    pub fn register(&self, hook: Hook) {
+        let mut hooks = self.hooks.write().unwrap();
+        hooks.push(hook);
+    }
+
+    /// Register a hook for an event with action
+    pub fn on(&self, event: HookEvent, action: HookAction) {
+        self.register(Hook::new(event, action));
+    }
+
+    /// Unregister all hooks for an event
+    pub fn unregister(&self, event: HookEvent) {
+        let mut hooks = self.hooks.write().unwrap();
+        hooks.retain(|h| h.event != event);
+    }
+
+    /// Trigger hooks for an event, returns actions to execute
+    pub fn trigger(&self, event: HookEvent) -> Vec<HookAction> {
+        // Increment event count
+        {
+            let mut counts = self.event_counts.write().unwrap();
+            *counts.entry(event).or_insert(0) += 1;
+        }
+
+        let hooks = self.hooks.read().unwrap();
+        hooks.iter()
+            .filter(|h| h.enabled && h.event == event)
+            .map(|h| h.action.clone())
+            .collect()
+    }
+
+    /// Check if any hooks are registered for an event
+    pub fn has_hooks(&self, event: HookEvent) -> bool {
+        let hooks = self.hooks.read().unwrap();
+        hooks.iter().any(|h| h.enabled && h.event == event)
+    }
+
+    /// Get event count for rollover tracking
+    pub fn event_count(&self, event: HookEvent) -> u32 {
+        let counts = self.event_counts.read().unwrap();
+        *counts.get(&event).unwrap_or(&0)
+    }
+
+    /// Reset event count
+    pub fn reset_count(&self, event: HookEvent) {
+        let mut counts = self.event_counts.write().unwrap();
+        counts.remove(&event);
+    }
+}
+
+impl Default for HookRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Checkpoint manager
 #[derive(Debug)]
 pub struct CheckpointManager {
     checkpoints: StdRwLock<Vec<Checkpoint>>,
     memory_summaries: StdRwLock<Vec<MemorySummary>>,
     flush_policy: MemoryFlushPolicy,
+    hook_registry: HookRegistry,
+    event_counter: StdRwLock<u32>,
 }
 
 impl CheckpointManager {
@@ -1049,6 +1177,56 @@ impl CheckpointManager {
             checkpoints: StdRwLock::new(Vec::new()),
             memory_summaries: StdRwLock::new(Vec::new()),
             flush_policy: MemoryFlushPolicy::OnCheckpoint,
+            hook_registry: HookRegistry::new(),
+            event_counter: StdRwLock::new(0),
+        }
+    }
+
+    /// Get the hook registry for registering hooks
+    pub fn hooks(&self) -> &HookRegistry {
+        &self.hook_registry
+    }
+
+    /// Set memory flush policy
+    pub fn set_flush_policy(&mut self, policy: MemoryFlushPolicy) {
+        self.flush_policy = policy;
+    }
+
+    /// Trigger hooks and execute actions
+    pub fn trigger_hooks(&self, event: HookEvent) -> Vec<HookAction> {
+        // Increment counter
+        {
+            let mut counter = self.event_counter.write().unwrap();
+            *counter += 1;
+        }
+
+        // Check rollover policy
+        if let MemoryFlushPolicy::Rollover(n) = self.flush_policy {
+            let counter = *self.event_counter.read().unwrap();
+            if counter >= n {
+                // Reset and trigger rollover
+                *self.event_counter.write().unwrap() = 0;
+                return vec![HookAction::FlushMemory];
+            }
+        }
+
+        self.hook_registry.trigger(event)
+    }
+
+    /// Check if memory should be flushed based on policy
+    pub fn should_flush(&self, event: HookEvent) -> bool {
+        match self.flush_policy {
+            MemoryFlushPolicy::OnCheckpoint => matches!(event, HookEvent::OnCheckpoint),
+            MemoryFlushPolicy::OnCompletion => matches!(event, HookEvent::OnComplete),
+            MemoryFlushPolicy::OnDemand => false,
+            MemoryFlushPolicy::Rollover(_) => {
+                let counter = *self.event_counter.read().unwrap();
+                if let MemoryFlushPolicy::Rollover(n) = self.flush_policy {
+                    counter >= n
+                } else {
+                    false
+                }
+            }
         }
     }
 

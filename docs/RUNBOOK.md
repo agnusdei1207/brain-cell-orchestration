@@ -45,7 +45,7 @@ This section records what appears to be implemented already versus what is still
 - [x] session actor queue is not yet implemented (SessionActorQueue added with enqueue/dequeue)
 - [x] reason-aware failover is not yet implemented in Rust runtime (ModelManager.handle_model_failure with reason classification, retry delays)
 - [ ] auth profile rotation and cooldown system is not yet implemented
-- [ ] hook-driven automation and memory flushes are not yet implemented
+- [x] hook-driven automation and memory flushes are not yet implemented (HookRegistry, HookEvent, HookAction, CheckpointManager.trigger_hooks with MemoryFlushPolicy automation)
 - [ ] subtree shutdown and lineage persistence need verification in code, not just types
 - [ ] session writeback files and append-only logs need implementation verification
 - [x] CTF harness is still placeholder-level, not competition-ready (now has challenge-type classification, tool hints, artifact expectations per type)
