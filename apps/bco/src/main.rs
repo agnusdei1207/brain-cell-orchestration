@@ -8,7 +8,7 @@ use bco_orchestrator::{
     BrainCellOrchestrator, OrchestratorRuntime, RuntimeServices, OperatorInput,
     ExecutionContext, CellIdentity, CellType,
 };
-use bco_session::{SessionBootstrap, SessionMeta, SessionState, SessionRuntime};
+use bco_session::{SessionBootstrap, SessionId, SessionMeta, SessionState, SessionRuntime};
 use bco_tui::{TuiBlueprint, TuiState, ConnectionHealth};
 use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
@@ -1162,6 +1162,12 @@ fn update_session_state(session: &SessionBootstrap, state: SessionState) {
         let path = session.layout().session_json();
         let _ = fs::write(path, json);
     }
+
+    let _ = touch_session_runtime(
+        &session.layout().session_dir(),
+        session.id(),
+        None,
+    );
 }
 
 fn update_session_state_in_dir(
@@ -1178,7 +1184,40 @@ fn update_session_state_in_dir(
     let json = serde_json::to_string_pretty(&meta)
         .map_err(|e| format!("Failed to serialize session meta: {}", e))?;
     fs::write(session_dir.join("session.json"), json)
-        .map_err(|e| format!("Failed to write session.json: {}", e))
+        .map_err(|e| format!("Failed to write session.json: {}", e))?;
+
+    touch_session_runtime(session_dir, existing.id, None)
+}
+
+fn touch_session_runtime(
+    session_dir: &PathBuf,
+    session_id: SessionId,
+    active_model: Option<String>,
+) -> Result<(), String> {
+    let runtime_path = session_dir.join("session_runtime.json");
+    let mut runtime = if runtime_path.exists() {
+        load_session_runtime(session_dir)?
+    } else {
+        SessionRuntime {
+            session_id,
+            active_model: None,
+            token_usage: None,
+            abort_count: 0,
+            compaction_count: 0,
+            last_updated: chrono::Utc::now(),
+        }
+    };
+
+    runtime.session_id = session_id;
+    if let Some(model) = active_model {
+        runtime.active_model = Some(model);
+    }
+    runtime.last_updated = chrono::Utc::now();
+
+    let json = serde_json::to_string_pretty(&runtime)
+        .map_err(|e| format!("Failed to serialize session_runtime.json: {}", e))?;
+    fs::write(runtime_path, json)
+        .map_err(|e| format!("Failed to write session_runtime.json: {}", e))
 }
 
 fn load_provider_registry() -> ProviderRegistry {

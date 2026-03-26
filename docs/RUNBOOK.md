@@ -317,31 +317,31 @@ Status: `in_progress`
 
 Tasks:
 
-- [ ] create session root layout under `.bco/sessions/<session-id>/`
-- [ ] add `session.json`
-- [ ] add `transcript.jsonl`
-- [ ] add `plan.jsonl`
-- [ ] add `approvals.jsonl`
-- [ ] add `evidence.jsonl`
-- [ ] add `tool_runs.jsonl`
-- [ ] add `orchestrator_events.jsonl`
-- [ ] add `cell_topology.jsonl`
-- [ ] add `model_events.jsonl`
-- [ ] add `session_runtime.json`
-- [ ] add `pending_work.jsonl`
-- [ ] add `checkpoints/`
-- [ ] add `memory/`
+- [x] create session root layout under `.bco/sessions/<session-id>/`
+- [x] add `session.json`
+- [x] add `transcript.jsonl`
+- [x] add `plan.jsonl`
+- [x] add `approvals.jsonl`
+- [x] add `evidence.jsonl`
+- [x] add `tool_runs.jsonl`
+- [x] add `orchestrator_events.jsonl`
+- [x] add `cell_topology.jsonl`
+- [x] add `model_events.jsonl`
+- [x] add `session_runtime.json`
+- [x] add `pending_work.jsonl`
+- [x] add `checkpoints/`
+- [x] add `memory/`
 
 Definition of done:
 
-- [ ] one session bootstrap call creates the full deterministic layout
-- [ ] file writers are append-only where required
-- [ ] session ids and timestamps are consistent across files
+- [x] one session bootstrap call creates the full deterministic layout
+- [x] file writers are append-only where required
+- [x] session ids and timestamps are consistent across files
 
 Verify:
 
 - [ ] deterministic fixture tests compare generated layout
-- [ ] replay can reconstruct basic session summary
+- [x] replay can reconstruct basic session summary
 
 ### B2. CLI command skeleton
 
