@@ -1,35 +1,80 @@
 FROM kalilinux/kali-rolling
 
-# Avoid prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# ── Terminal color & Unicode support ──
 ENV TERM=xterm-256color \
     COLORTERM=truecolor \
     FORCE_COLOR=3 \
+    NODE_OPTIONS=--no-deprecation \
     LANG=en_US.UTF-8 \
     LC_ALL=en_US.UTF-8
 
-# Kali GPG keyring setup for authenticated package installation
 RUN echo "deb [signed-by=/usr/share/keyrings/kali-archive-keyring.gpg] http://kali.download/kali kali-rolling main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
-    apt update -qq && \
-    apt install -y --no-install-recommends ca-certificates curl gnupg dirmngr gpg-agent && \
+    apt-get update -qq && \
+    apt-get install -y --no-install-recommends ca-certificates curl wget gnupg dirmngr gpg-agent && \
     curl -fsSL https://archive.kali.org/archive-keyring.gpg | gpg --dearmor > /usr/share/keyrings/kali-archive-keyring.gpg && \
-    apt update -qq
+    apt-get update -qq
 
-# Core tools for brain-cell-orchestration
-RUN apt install -y --no-install-recommends \
+RUN apt-get install -y --no-install-recommends \
     bash \
-    build-essential \
-    curl \
+    dirb \
+    dnsutils \
+    feroxbuster \
+    findutils \
     git \
+    gobuster \
+    hydra \
+    iproute2 \
+    iputils-ping \
     jq \
-    libssl-dev \
-    pkg-config \
+    locales \
+    masscan \
+    ncurses-term \
+    net-tools \
+    netcat-traditional \
+    nikto \
+    nmap \
+    procps \
+    python3 \
+    python3-pip \
+    ruby-full \
+    smbclient \
+    sqlmap \
+    tcpdump \
+    tor \
+    torsocks \
+    proxychains4 \
+    whatweb \
+    wfuzz \
+    && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \
+    && locale-gen \
     && rm -rf /var/lib/apt/lists/*
 
-# Rust toolchain
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && \
-    ln -s /root/.cargo/bin/cargo /usr/local/bin/cargo || true
+RUN mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update -qq && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
-# Keep Kali base for offensive tooling that integrates with bco orchestration
+RUN printf '\
+SocksPort 9050\n\
+DNSPort 5353\n\
+AutomapHostsOnResolve 1\n\
+RunAsDaemon 0\n\
+Log notice stderr\n\
+' > /etc/tor/torrc
+
+RUN printf '\
+# proxychains4 config - Tor integration\n\
+strict_chain\n\
+proxy_dns\n\
+remote_dns_subnet 224\n\
+tcp_read_time_out 15000\n\
+tcp_connect_time_out 8000\n\
+[ProxyList]\n\
+socks5 127.0.0.1 9050\n\
+' > /etc/proxychains4.conf
+
+RUN printf '#!/usr/bin/env bash\nset -euo pipefail\nexec \"$@\"\n' > /usr/local/bin/docker-entrypoint.sh && \
+    chmod +x /usr/local/bin/docker-entrypoint.sh

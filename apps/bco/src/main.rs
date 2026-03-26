@@ -313,7 +313,6 @@ fn providers_command(action: Option<&ProviderAction>) {
                                 ConnectionState::Disconnected => "disconnected",
                                 ConnectionState::Connecting => "connecting",
                                 ConnectionState::Error => "error",
-                                ConnectionState::Cooldown => "cooldown",
                             }
                         );
                         if let Some(ref endpoint) = profile.endpoint {
@@ -327,8 +326,6 @@ fn providers_command(action: Option<&ProviderAction>) {
             let profile = ConnectionProfile {
                 provider: ProviderRef::new(name.clone()),
                 endpoint: endpoint.clone(),
-                api_key: None,
-                auth_type: bco_core::AuthType::None,
                 state: ConnectionState::Disconnected,
             };
             registry.upsert(profile);

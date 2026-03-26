@@ -73,6 +73,7 @@ Verification note:
 - [x] `MessageBus`, `SubmissionQueue`, `EventQueue`, and `SessionActorQueue` types exist
 - [x] provider/model switching types exist in `bco-core`
 - [x] CTF harness contains challenge-type and artifact expectation helpers
+- [x] runtime Docker image now targets `agnusdei1207/pentesting-base:latest`
 
 ### Confirmed missing or incomplete now
 
@@ -156,16 +157,16 @@ Implications:
 Current state:
 
 - [x] reference runtime exists in `../pentesting/Dockerfile`
-- [x] local repo has an untracked `Dockerfile.base` intended to move toward Kali
-- [x] current tracked `Dockerfile` uses `rust:1.94-bookworm -> kalilinux/kali-rolling`
+- [x] local repo has a tracked `Dockerfile.base` aligned with `../pentesting`
+- [x] current tracked `Dockerfile` uses `rust:1.94-bookworm -> agnusdei1207/pentesting-base:latest`
 - [x] the tracked runtime is aligned with the CTF-first Kali requirement
 
 Required adoption from `../pentesting`
 
-- [ ] use the Kali-based runtime approach as the canonical runtime direction
+- [x] use the Kali-based runtime approach as the canonical runtime direction
 - [ ] keep builder/runtime split explicit
-- [ ] document why Kali is required for the `ctf-harness`
-- [ ] validate the local `Dockerfile.base` before adopting because it currently appears unfinished
+- [x] document why Kali is required for the `ctf-harness`
+- [x] validate the local `Dockerfile.base` before adopting
 
 ## Execution Order
 
@@ -750,13 +751,13 @@ Tasks:
 
 - [ ] compare tracked `Dockerfile` against `../pentesting/Dockerfile`
 - [ ] decide canonical builder image
-- [ ] decide canonical Kali runtime image
-- [ ] document why CTF workflows require Kali runtime support
+- [x] decide canonical Kali runtime image
+- [x] document why CTF workflows require Kali runtime support
 
 Definition of done:
 
-- [ ] runtime packaging direction is explicit
-- [ ] the team is no longer split between Debian runtime and Kali runtime assumptions
+- [x] runtime packaging direction is explicit
+- [x] the team is no longer split between Debian runtime and Kali runtime assumptions
 
 Verify:
 
@@ -768,7 +769,7 @@ Status: `pending`
 
 Tasks:
 
-- [ ] review `Dockerfile.base`
+- [x] review `Dockerfile.base`
 - [ ] review `Dockerfile.builder`
 - [ ] review `test.sh`
 - [ ] confirm whether these files are valid, stale, or partial work

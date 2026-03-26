@@ -55,6 +55,7 @@ docs/
     REFERENCE_ANALYSIS.md
                        extracted strengths and adoption rules
 Dockerfile             canonical build/runtime image
+Dockerfile.base        Kali-heavy base mirrored from ../pentesting
 ```
 
 ## Quick Start
@@ -64,6 +65,8 @@ Build with Docker:
 ```bash
 docker build -t brain-cell-orchestration .
 ```
+
+The runtime image now targets `agnusdei1207/pentesting-base:latest`, and [Dockerfile.base](/Users/pf/workspace/brain-cell-orchestration/Dockerfile.base) mirrors the heavy Kali base strategy from `../pentesting`.
 
 Run the bootstrap binary:
 

@@ -738,8 +738,8 @@ impl ModelManager {
             };
         }
 
-        // Auth failures need intervention
-        if reason == ModelSwitchReason::AuthFailure {
+        // Configuration failures need intervention
+        if reason == ModelSwitchReason::ConfigurationError {
             return ModelSwitchRecommendation {
                 should_switch: false,
                 reason,
@@ -765,10 +765,10 @@ impl ModelManager {
             return ModelSwitchReason::RateLimit;
         }
 
-        if error_lower.contains("auth") || error_lower.contains("401") ||
-           error_lower.contains("unauthorized") || error_lower.contains("invalid api key") ||
-           error_lower.contains("permission denied") {
-            return ModelSwitchReason::AuthFailure;
+        if error_lower.contains("invalid configuration") || error_lower.contains("bad request") ||
+           error_lower.contains("permission denied") || error_lower.contains("unsupported model") ||
+           error_lower.contains("invalid provider") {
+            return ModelSwitchReason::ConfigurationError;
         }
 
         if error_lower.contains("not found") || error_lower.contains("404") ||
@@ -789,7 +789,7 @@ impl ModelManager {
     fn get_retry_delay(&self, reason: ModelSwitchReason) -> u64 {
         match reason {
             ModelSwitchReason::RateLimit => self.fallback_policy.retry_delay_ms * 10,
-            ModelSwitchReason::AuthFailure => self.fallback_policy.retry_delay_ms * 5,
+            ModelSwitchReason::ConfigurationError => self.fallback_policy.retry_delay_ms * 5,
             ModelSwitchReason::ProviderError => self.fallback_policy.retry_delay_ms * 2,
             _ => self.fallback_policy.retry_delay_ms,
         }
@@ -917,7 +917,7 @@ pub enum WakeReason {
 pub enum RetryClass {
     Transient,  // Can retry immediately
     RateLimit,  // Should wait before retry
-    AuthFailure, // Needs auth refresh
+    Configuration, // Needs operator correction
     Permanent,  // Should not retry
 }
 
@@ -1002,7 +1002,7 @@ impl AutonomyScheduler {
         match retry_class {
             RetryClass::Transient => self.retry_delay_ms,
             RetryClass::RateLimit => self.retry_delay_ms * 5,
-            RetryClass::AuthFailure => self.retry_delay_ms * 10,
+            RetryClass::Configuration => self.retry_delay_ms * 10,
             RetryClass::Permanent => 0,
         }
     }
@@ -1988,7 +1988,7 @@ impl OrchestratorRuntime {
                     retry_class: match work.retry_class {
                         RetryClass::Transient => "transient",
                         RetryClass::RateLimit => "rate-limit",
-                        RetryClass::AuthFailure => "auth-failure",
+                        RetryClass::Configuration => "configuration",
                         RetryClass::Permanent => "permanent",
                     },
                 };
