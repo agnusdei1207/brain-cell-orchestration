@@ -52,6 +52,11 @@ enum Commands {
         /// Session ID to fork
         session_id: Option<String>,
     },
+    /// Continue the current active step for a session
+    Continue {
+        /// Session ID to continue, defaults to the most recent session
+        session_id: Option<String>,
+    },
     /// Grant a pending approval request for a session
     Approve {
         /// Approval request ID
@@ -130,6 +135,9 @@ fn main() {
         }
         Commands::Fork { session_id } => {
             fork_command(session_id.as_deref());
+        }
+        Commands::Continue { session_id } => {
+            continue_command(session_id.as_deref());
         }
         Commands::Approve { request_id, session_id } => {
             approval_command(session_id.as_deref(), &request_id, true, None);
@@ -494,6 +502,157 @@ fn approval_command(
                 "Approval {} for session {}: [{}] {}",
                 kind, snapshot.meta.id, risk, action
             );
+        }
+        Err(error) => println!("  Error loading session: {}", error),
+    }
+}
+
+fn continue_command(session_id: Option<&str>) {
+    let session_dir = if let Some(id) = session_id {
+        PathBuf::from(format!(".bco/sessions/{}", id))
+    } else {
+        match find_most_recent_session() {
+            Some(dir) => dir,
+            None => {
+                println!("No sessions found.");
+                return;
+            }
+        }
+    };
+
+    match load_session_snapshot(&session_dir) {
+        Ok(snapshot) => {
+            if !snapshot.pending_approvals.is_empty() {
+                println!("Session {} is waiting on approval.", snapshot.meta.id);
+                return;
+            }
+
+            let Ok(plan) = load_latest_plan_entry(&session_dir) else {
+                println!("No plan found for session {}.", snapshot.meta.id);
+                return;
+            };
+
+            let active_index = plan.active_index.unwrap_or(0);
+            if active_index >= plan.steps.len() {
+                let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Completed);
+                println!("Session {} is already complete.", snapshot.meta.id);
+                return;
+            }
+
+            let active_step = plan.steps[active_index].clone();
+            let now = chrono::Utc::now();
+
+            let interaction_begin = serde_json::json!({
+                "timestamp": now,
+                "event": {
+                    "InteractionBegin": {
+                        "from": "6bc66dad-ecf8-6fef-ef6f-f8ecad6dc66b",
+                        "to": "736aa25d-3044-f9c2-c2f9-44305da26a73"
+                    }
+                }
+            });
+            let _ = append_jsonl_line(&session_dir.join("orchestrator_events.jsonl"), &interaction_begin);
+            let _ = append_jsonl_line(
+                &session_dir.join("transcript.jsonl"),
+                &serde_json::json!({
+                    "timestamp": now,
+                    "line": format!("[coord] delegated {}", active_step),
+                }),
+            );
+
+            let objective_text = snapshot.meta.profile.replace("offensive-", "").replace('-', " ");
+            let risk = classify_action_risk_local(&active_step, &objective_text);
+            if matches!(risk, RiskProfile::High | RiskProfile::Critical) {
+                let request_id = deterministic_request_id(&active_step);
+                let risk_label = title_case_ascii(risk.as_str());
+                let _ = append_jsonl_line(
+                    &session_dir.join("approvals.jsonl"),
+                    &serde_json::json!({
+                        "timestamp": now,
+                        "kind": "requested",
+                        "request_id": request_id,
+                        "cell": "736aa25d-3044-f9c2-c2f9-44305da26a73",
+                        "action": active_step,
+                        "risk": risk_label,
+                        "reason": serde_json::Value::Null,
+                    }),
+                );
+                let _ = append_jsonl_line(
+                    &session_dir.join("orchestrator_events.jsonl"),
+                    &serde_json::json!({
+                        "timestamp": now,
+                        "event": {
+                            "ApprovalRequested": {
+                                "cell": "736aa25d-3044-f9c2-c2f9-44305da26a73",
+                                "action": active_step,
+                                "risk": risk_label
+                            }
+                        }
+                    }),
+                );
+                let _ = append_jsonl_line(
+                    &session_dir.join("transcript.jsonl"),
+                    &serde_json::json!({
+                        "timestamp": now,
+                        "line": format!("[approval] requested {}", active_step),
+                    }),
+                );
+                let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Active);
+                println!("Session {} continued into approval-gated step.", snapshot.meta.id);
+                return;
+            }
+
+            let _ = append_jsonl_line(
+                &session_dir.join("orchestrator_events.jsonl"),
+                &serde_json::json!({
+                    "timestamp": now,
+                    "event": {
+                        "InteractionEnd": {
+                            "from": "6bc66dad-ecf8-6fef-ef6f-f8ecad6dc66b",
+                            "to": "736aa25d-3044-f9c2-c2f9-44305da26a73"
+                        }
+                    }
+                }),
+            );
+            let _ = append_jsonl_line(
+                &session_dir.join("transcript.jsonl"),
+                &serde_json::json!({
+                    "timestamp": now,
+                    "line": format!("[coord] executor returned {}", active_step),
+                }),
+            );
+
+            let next_index = usize::min(active_index.saturating_add(1), plan.steps.len());
+            let _ = append_plan_snapshot(&session_dir, &plan.objective_id, &plan.steps, next_index);
+            if next_index >= plan.steps.len() {
+                let _ = append_jsonl_line(
+                    &session_dir.join("orchestrator_events.jsonl"),
+                    &serde_json::json!({
+                        "timestamp": now,
+                        "event": { "ObjectiveCompleted": { "id": plan.objective_id } }
+                    }),
+                );
+                let _ = append_jsonl_line(
+                    &session_dir.join("transcript.jsonl"),
+                    &serde_json::json!({
+                        "timestamp": now,
+                        "line": "[objective] completed".to_string(),
+                    }),
+                );
+                let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Completed);
+            } else {
+                let next_step = plan.steps.get(next_index).cloned().unwrap_or_default();
+                let _ = append_jsonl_line(
+                    &session_dir.join("transcript.jsonl"),
+                    &serde_json::json!({
+                        "timestamp": now,
+                        "line": format!("[turn] advanced to {}", next_step),
+                    }),
+                );
+                let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Active);
+            }
+
+            println!("Session {} continued successfully.", snapshot.meta.id);
         }
         Err(error) => println!("  Error loading session: {}", error),
     }
@@ -1182,4 +1341,65 @@ fn append_plan_snapshot(
         "active_index": active_index,
     });
     append_jsonl_line(&session_dir.join("plan.jsonl"), &entry)
+}
+
+fn classify_action_risk_local(action: &str, objective: &str) -> RiskProfile {
+    let combined = format!("{} {}", action.to_lowercase(), objective.to_lowercase());
+    if combined.contains("lateral movement")
+        || combined.contains("initial access")
+        || combined.contains("exploit")
+        || combined.contains("persistence")
+        || combined.contains("exfiltration")
+    {
+        RiskProfile::Critical
+    } else if combined.contains("enumerate")
+        || combined.contains("attack surface")
+        || combined.contains("vulnerability")
+        || combined.contains("recon")
+    {
+        RiskProfile::High
+    } else {
+        RiskProfile::Moderate
+    }
+}
+
+fn deterministic_request_id(step: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    step.hash(&mut hasher);
+    let hash = hasher.finish();
+    let bytes = [
+        (hash >> 56) as u8,
+        (hash >> 48) as u8,
+        (hash >> 40) as u8,
+        (hash >> 32) as u8,
+        (hash >> 24) as u8,
+        (hash >> 16) as u8,
+        (hash >> 8) as u8,
+        hash as u8,
+        (hash >> 56) as u8,
+        (hash >> 48) as u8,
+        (hash >> 40) as u8,
+        (hash >> 32) as u8,
+        (hash >> 24) as u8,
+        (hash >> 16) as u8,
+        (hash >> 8) as u8,
+        hash as u8,
+    ];
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3],
+        bytes[4], bytes[5],
+        bytes[6], bytes[7],
+        bytes[8], bytes[9],
+        bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+    )
+}
+
+fn title_case_ascii(value: &str) -> String {
+    let mut chars = value.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+        None => String::new(),
+    }
 }

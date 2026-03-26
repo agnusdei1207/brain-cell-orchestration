@@ -175,6 +175,7 @@ Current implementation note:
 - local operators can now resolve approval state with `bco approve` and `bco deny`
 - approved sessions already advance their persisted plan snapshot to the next step without any server-side session state
 - local approval resolution also writes turn-progression transcript/event artifacts so operators can audit what changed
+- local operators can also drive the next active step with `bco continue`, which may immediately reopen approval if the next step is still high risk
 - the next priority is not inventing more persistence types, but connecting those persisted states to richer autonomous execution
 
 ## 8. Proposed Runtime Model

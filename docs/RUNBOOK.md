@@ -62,7 +62,7 @@ Verification note:
 ### Confirmed implemented now
 
 - [x] Rust workspace exists
-- [x] top-level CLI subcommands exist for `exec`, `review`, `resume`, `fork`, `approve`, `deny`, `providers`, `models`
+- [x] top-level CLI subcommands exist for `exec`, `review`, `resume`, `fork`, `continue`, `approve`, `deny`, `providers`, `models`
 - [x] objective and risk-related core types exist
 - [x] harness contract types and placeholder harnesses exist
 - [x] orchestrator crate contains first-pass control-plane and cell identity types
@@ -90,6 +90,7 @@ Verification note:
 - [x] `approve` and `deny` can now resolve pending approval state through local session artifacts
 - [x] `approve` now advances the persisted plan snapshot so `review`/`resume` move to the next actionable step
 - [x] local approval handling now appends turn-progression transcript/events without any server-side coordinator
+- [x] `continue` can now advance a local session into the next active step and re-open approval when that step is still high risk
 - [ ] reason-aware failover is not verified as integrated runtime behavior
 - [x] auth rotation is intentionally out of scope for the current local-first build
 - [ ] hook-driven automation and memory flushes need end-to-end verification, not just type presence
