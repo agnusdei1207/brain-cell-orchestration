@@ -224,6 +224,8 @@ fn exec_command(objective: &[String]) {
         }
     }
 
+    let _ = sync_initial_pending_work(&session.layout().session_dir());
+
     let mut state = runtime.build_tui_state(intent.objective());
     state.status.harness = Some(harness_name);
     hydrate_model_status(&mut state);
@@ -1280,6 +1282,30 @@ fn rewrite_pending_work(
 
     fs::write(path, format!("{}\n", lines.join("\n")))
         .map_err(|e| format!("Failed to write pending_work.jsonl: {}", e))
+}
+
+fn sync_initial_pending_work(session_dir: &PathBuf) -> Result<(), String> {
+    let plan = load_latest_plan_entry(session_dir)?;
+    let pending_approvals = parse_pending_approvals(session_dir).unwrap_or_default();
+
+    if !pending_approvals.is_empty() {
+        let actions = pending_approvals
+            .iter()
+            .map(|(_, action, _, _)| action.clone())
+            .collect::<Vec<_>>();
+        return rewrite_pending_work(session_dir, &plan.objective_id, &actions);
+    }
+
+    let active_index = plan.active_index.unwrap_or(0);
+    if let Some(active_step) = plan.steps.get(active_index) {
+        return rewrite_pending_work(
+            session_dir,
+            &plan.objective_id,
+            std::slice::from_ref(active_step),
+        );
+    }
+
+    rewrite_pending_work(session_dir, &plan.objective_id, &[])
 }
 
 fn touch_session_runtime(
