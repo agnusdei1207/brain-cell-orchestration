@@ -84,7 +84,9 @@ Verification note:
 - [x] append-only orchestration event persistence is wired into runtime flow
 - [x] session runtime writeback and pending-work snapshot persistence are wired into runtime flow
 - [x] `transcript.jsonl` and `plan.jsonl` are now written during runtime execution
+- [x] `approvals.jsonl` is now written for approval-requested states
 - [x] `review` and `resume` now rebuild state from persisted session artifacts instead of reconstructing everything from ad hoc CLI defaults
+- [x] approval-gated offensive objectives now surface waiting coordinator/executor state in both live TUI and resumed sessions
 - [ ] reason-aware failover is not verified as integrated runtime behavior
 - [x] auth rotation is intentionally out of scope for the current local-first build
 - [ ] hook-driven automation and memory flushes need end-to-end verification, not just type presence
@@ -526,23 +528,24 @@ Verify:
 
 ### D3. Capability and approval enforcement
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] enforce `CapabilityPolicy`
-- [ ] define approval gate model
-- [ ] classify approval-required actions
-- [ ] surface pending approvals in session state
+- [x] enforce `CapabilityPolicy`
+- [x] define approval gate model
+- [x] classify approval-required actions
+- [x] surface pending approvals in session state
 
 Definition of done:
 
-- [ ] restricted actions cannot execute without policy clearance
-- [ ] approval state is recoverable after restart
+- [x] restricted actions cannot execute without policy clearance
+- [x] approval state is recoverable after restart
 
 Verify:
 
 - [ ] tests cover denied, approved, and resumed approval flows
+- [x] manual Docker verification covers approval-requested and resumed approval flows
 
 ### D4. Runtime services
 

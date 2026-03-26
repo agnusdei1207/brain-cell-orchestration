@@ -230,6 +230,9 @@ fn review_command(objective_id: Option<&str>) {
                             if let Some(ref model) = snapshot.runtime.active_model {
                                 println!("    model: {}", model);
                             }
+                            if !snapshot.pending_approvals.is_empty() {
+                                println!("    approvals: {}", snapshot.pending_approvals.len());
+                            }
                         }
                     }
                 }
@@ -543,6 +546,7 @@ struct SessionSnapshot {
     transcript: Vec<String>,
     next_action: Option<String>,
     active_cells: Vec<(String, String)>,
+    pending_approvals: Vec<(String, String, String)>,
 }
 
 impl SessionSnapshot {
@@ -558,6 +562,19 @@ impl SessionSnapshot {
             .into_iter()
             .map(|(name, status)| bco_tui::CellDisplay { name, status })
             .collect();
+        state.pending_approvals = self
+            .pending_approvals
+            .into_iter()
+            .map(|(risk, action, requested_at)| bco_tui::ApprovalDisplay {
+                risk,
+                action,
+                requested_at,
+            })
+            .collect();
+        state.status.approval_state = match state.pending_approvals.len() {
+            0 => bco_tui::ApprovalState::None,
+            count => bco_tui::ApprovalState::Pending(count as u32),
+        };
         state.status.model = self.runtime.active_model.clone();
         if let Some(ref model) = self.runtime.active_model {
             if let Ok(model_ref) = ModelRef::parse(model) {
@@ -574,7 +591,8 @@ impl SessionSnapshot {
 fn load_session_snapshot(session_dir: &PathBuf) -> Result<SessionSnapshot, String> {
     let meta = load_session_meta(session_dir)?;
     let runtime = load_session_runtime(session_dir)?;
-    let (plan_steps, transcript, next_action, active_cells) = parse_session_artifacts(session_dir)?;
+    let (plan_steps, transcript, next_action, active_cells, pending_approvals) =
+        parse_session_artifacts(session_dir)?;
 
     Ok(SessionSnapshot {
         meta,
@@ -583,15 +601,26 @@ fn load_session_snapshot(session_dir: &PathBuf) -> Result<SessionSnapshot, Strin
         transcript,
         next_action,
         active_cells,
+        pending_approvals,
     })
 }
 
 fn parse_session_artifacts(
     session_dir: &PathBuf,
-) -> Result<(Vec<String>, Vec<String>, Option<String>, Vec<(String, String)>), String> {
+) -> Result<
+    (
+        Vec<String>,
+        Vec<String>,
+        Option<String>,
+        Vec<(String, String)>,
+        Vec<(String, String, String)>,
+    ),
+    String,
+> {
     let plan_steps = parse_plan_log(session_dir)?;
     let transcript = parse_transcript_log(session_dir)?;
     let active_cells = parse_cell_states(session_dir)?;
+    let pending_approvals = parse_pending_approvals(session_dir)?;
     let next_action = plan_steps
         .iter()
         .find_map(|step| step.strip_prefix("[active] ").map(str::to_string))
@@ -600,7 +629,7 @@ fn parse_session_artifacts(
                 .iter()
                 .find_map(|step| step.strip_prefix("[pending] ").map(str::to_string))
         });
-    Ok((plan_steps, transcript, next_action, active_cells))
+    Ok((plan_steps, transcript, next_action, active_cells, pending_approvals))
 }
 
 fn parse_plan_log(session_dir: &PathBuf) -> Result<Vec<String>, String> {
@@ -655,9 +684,11 @@ fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, Str
     let events_path = session_dir.join("orchestrator_events.jsonl");
     let events_content = fs::read_to_string(&events_path)
         .map_err(|e| format!("Failed to read orchestrator events: {}", e))?;
+    let approvals_path = session_dir.join("approvals.jsonl");
+    let approvals_content = fs::read_to_string(&approvals_path).unwrap_or_default();
 
     let turn_completed = events_content.lines().any(|line| line.contains("\"TurnCompleted\""));
-    let fallback_status = if turn_completed { "completed" } else { "idle" };
+    let has_pending_approval = approvals_content.lines().any(|line| line.contains("\"kind\":\"requested\""));
     let mut active_cells = Vec::new();
 
     for line in topology_content.lines() {
@@ -667,10 +698,59 @@ fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, Str
 
         let entry: CellTopologyLogEntry = serde_json::from_str(line)
             .map_err(|e| format!("Failed to parse cell topology line: {}", e))?;
-        active_cells.push((entry.cell_type, fallback_status.to_string()));
+        let status = if has_pending_approval {
+            match entry.cell_type.as_str() {
+                "planner" => "completed",
+                "coordinator" | "executor" => "waiting",
+                "reviewer" => "idle",
+                _ => "waiting",
+            }
+        } else if turn_completed {
+            "completed"
+        } else {
+            "idle"
+        };
+        active_cells.push((entry.cell_type, status.to_string()));
     }
 
     Ok(active_cells)
+}
+
+fn parse_pending_approvals(session_dir: &PathBuf) -> Result<Vec<(String, String, String)>, String> {
+    let path = session_dir.join("approvals.jsonl");
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read approval log: {}", e))?;
+    let mut pending = std::collections::BTreeMap::<String, (String, String, String)>::new();
+
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: ApprovalLogEntry = serde_json::from_str(line)
+            .map_err(|e| format!("Failed to parse approval log line: {}", e))?;
+
+        match entry.kind.as_str() {
+            "requested" => {
+                if let (Some(action), Some(risk)) = (entry.action, entry.risk) {
+                    pending.insert(
+                        entry.request_id,
+                        (
+                            risk,
+                            action,
+                            entry.timestamp.format("%H:%M:%S").to_string(),
+                        ),
+                    );
+                }
+            }
+            "granted" | "denied" => {
+                pending.remove(&entry.request_id);
+            }
+            _ => {}
+        }
+    }
+
+    Ok(pending.into_values().collect())
 }
 
 fn print_session_snapshot(snapshot: &SessionSnapshot) {
@@ -693,6 +773,12 @@ fn print_session_snapshot(snapshot: &SessionSnapshot) {
         println!("  Cells:");
         for (name, status) in &snapshot.active_cells {
             println!("    {} ({})", name, status);
+        }
+    }
+    if !snapshot.pending_approvals.is_empty() {
+        println!("  Pending approvals:");
+        for (risk, action, requested_at) in &snapshot.pending_approvals {
+            println!("    [{}] {} at {}", risk, action, requested_at);
         }
     }
 }
@@ -857,4 +943,13 @@ struct PlanLogEntry {
 #[derive(Debug, Deserialize)]
 struct CellTopologyLogEntry {
     cell_type: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ApprovalLogEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    kind: String,
+    request_id: String,
+    action: Option<String>,
+    risk: Option<String>,
 }

@@ -85,6 +85,7 @@ This repository has moved past the initial bootstrap stage. The current implemen
 - `exec`, `review`, `resume`, `fork`, `providers`, and `models`
 - local session persistence under `.bco/sessions/<session-id>`
 - append-only `transcript.jsonl`, `plan.jsonl`, `orchestrator_events.jsonl`, `cell_topology.jsonl`, and `pending_work.jsonl`
+- persisted approval state in `approvals.jsonl` with resume-visible waiting cells
 - first-pass planner/coordinator/executor/reviewer offensive workflow orchestration
 - Kali-based runtime packaging aligned with `../pentesting`
 

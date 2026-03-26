@@ -1863,6 +1863,17 @@ struct PendingWorkLogEntry {
 }
 
 #[derive(Debug, Clone, Serialize)]
+struct ApprovalLogEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    kind: &'static str,
+    request_id: Uuid,
+    cell: Option<CellId>,
+    action: Option<String>,
+    risk: Option<RiskProfile>,
+    reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 struct TranscriptEntry {
     timestamp: chrono::DateTime<chrono::Utc>,
     line: String,
@@ -1929,6 +1940,7 @@ impl OrchestratorRuntime {
         let plan_path = layout.plan_jsonl();
         let topology_path = layout.cell_topology_jsonl();
         let model_path = layout.model_events_jsonl();
+        let approvals_path = layout.approvals_jsonl();
         let file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -1949,12 +1961,17 @@ impl OrchestratorRuntime {
             .create(true)
             .append(true)
             .open(&model_path)?;
+        let approvals_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&approvals_path)?;
 
         let mut file = std::io::BufWriter::new(file);
         let mut transcript_file = std::io::BufWriter::new(transcript_file);
         let mut plan_file = std::io::BufWriter::new(plan_file);
         let mut topology_file = std::io::BufWriter::new(topology_file);
         let mut model_file = std::io::BufWriter::new(model_file);
+        let mut approvals_file = std::io::BufWriter::new(approvals_file);
         for event in events {
             let now = chrono::Utc::now();
             let entry = EventLogEntry {
@@ -2004,6 +2021,48 @@ impl OrchestratorRuntime {
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
                     writeln!(plan_file, "{}", json)?;
                 }
+                OrchestrationEvent::ApprovalRequested { cell, action, risk } => {
+                    let approval_entry = ApprovalLogEntry {
+                        timestamp: now,
+                        kind: "requested",
+                        request_id: approval_request_id(cell, &action, risk),
+                        cell: Some(cell),
+                        action: Some(action),
+                        risk: Some(risk),
+                        reason: None,
+                    };
+                    let json = serde_json::to_string(&approval_entry)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    writeln!(approvals_file, "{}", json)?;
+                }
+                OrchestrationEvent::ApprovalGranted { request_id } => {
+                    let approval_entry = ApprovalLogEntry {
+                        timestamp: now,
+                        kind: "granted",
+                        request_id,
+                        cell: None,
+                        action: None,
+                        risk: None,
+                        reason: None,
+                    };
+                    let json = serde_json::to_string(&approval_entry)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    writeln!(approvals_file, "{}", json)?;
+                }
+                OrchestrationEvent::ApprovalDenied { request_id, reason } => {
+                    let approval_entry = ApprovalLogEntry {
+                        timestamp: now,
+                        kind: "denied",
+                        request_id,
+                        cell: None,
+                        action: None,
+                        risk: None,
+                        reason: Some(reason),
+                    };
+                    let json = serde_json::to_string(&approval_entry)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    writeln!(approvals_file, "{}", json)?;
+                }
                 _ => {}
             }
         }
@@ -2012,6 +2071,7 @@ impl OrchestratorRuntime {
         plan_file.flush()?;
         topology_file.flush()?;
         model_file.flush()?;
+        approvals_file.flush()?;
         Ok(())
     }
 
@@ -2142,8 +2202,12 @@ impl OrchestratorRuntime {
                 self.blackboard.set_objective(objective);
                 self.seed_core_cells(orch);
                 self.plan_offensive_workflow(orch, objective_id, harness_kind, &intent);
-                self.coordinate_execution(orch, objective_id);
-                self.review_objective(orch, objective_id);
+                if matches!(
+                    self.coordinate_execution(orch, objective_id),
+                    ExecutionDisposition::Completed
+                ) {
+                    self.review_objective(orch, objective_id);
+                }
             }
             OperatorInput::Interrupt => {
                 // Request cancellation on all active cells
@@ -2249,7 +2313,11 @@ impl OrchestratorRuntime {
         });
     }
 
-    fn coordinate_execution(&self, orch: &mut BrainCellOrchestrator, objective_id: ObjectiveId) {
+    fn coordinate_execution(
+        &self,
+        orch: &mut BrainCellOrchestrator,
+        objective_id: ObjectiveId,
+    ) -> ExecutionDisposition {
         let next_action = self.blackboard.next_actions().into_iter().next();
 
         if let Some(coordinator) = self.find_cell(CellType::Coordinator) {
@@ -2261,6 +2329,49 @@ impl OrchestratorRuntime {
         }
 
         if let Some(action) = next_action {
+            let objective_summary = self
+                .blackboard
+                .get_objective()
+                .map(|objective| objective.intent.objective().to_string());
+            let risk = classify_action_risk(&action.description, objective_summary.as_deref());
+            match self.services.policy_evaluator.evaluate(risk) {
+                PolicyDecision::Denied(reason) => {
+                    if let Some(coordinator) = self.find_cell(CellType::Coordinator) {
+                        self.blackboard.update_cell_status(coordinator, CellStatus::Failed);
+                    }
+                    if let Some(executor) = self.find_cell(CellType::Executor) {
+                        self.blackboard.update_cell_status(executor, CellStatus::Failed);
+                    }
+                    orch.emit_event(OrchestrationEvent::ObjectiveFailed {
+                        id: objective_id,
+                        error: reason,
+                    });
+                    return ExecutionDisposition::Failed;
+                }
+                PolicyDecision::RequiresApproval => {
+                    if let (Some(coordinator), Some(executor)) =
+                        (self.find_cell(CellType::Coordinator), self.find_cell(CellType::Executor))
+                    {
+                        let request = ApprovalRequest {
+                            id: approval_request_id(executor, &action.description, risk),
+                            cell_id: executor,
+                            action: action.description.clone(),
+                            risk,
+                            requested_at: chrono::Utc::now(),
+                        };
+                        self.blackboard.add_approval_request(request.clone());
+                        self.blackboard.update_cell_status(coordinator, CellStatus::WaitingApproval);
+                        self.blackboard.update_cell_status(executor, CellStatus::WaitingApproval);
+                        orch.emit_event(OrchestrationEvent::ApprovalRequested {
+                            cell: request.cell_id,
+                            action: request.action,
+                            risk: request.risk,
+                        });
+                    }
+                    return ExecutionDisposition::WaitingApproval;
+                }
+                PolicyDecision::Approved => {}
+            }
             if let (Some(coordinator), Some(executor)) =
                 (self.find_cell(CellType::Coordinator), self.find_cell(CellType::Executor))
             {
@@ -2287,6 +2398,7 @@ impl OrchestratorRuntime {
         if let Some(coordinator) = self.find_cell(CellType::Coordinator) {
             self.blackboard.update_cell_status(coordinator, CellStatus::Completed);
         }
+        ExecutionDisposition::Completed
     }
 
     fn review_objective(&self, orch: &mut BrainCellOrchestrator, objective_id: ObjectiveId) {
@@ -2438,6 +2550,10 @@ impl OrchestratorRuntime {
                 requested_at: approval.requested_at.format("%H:%M:%S").to_string(),
             })
             .collect();
+        state.status.approval_state = match state.pending_approvals.len() {
+            0 => bco_tui::ApprovalState::None,
+            count => bco_tui::ApprovalState::Pending(count as u32),
+        };
 
         state.transcript.extend(self.render_transcript_events());
         state
@@ -2453,6 +2569,13 @@ impl OrchestratorRuntime {
             .map(event_to_transcript_line)
             .collect()
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExecutionDisposition {
+    Completed,
+    WaitingApproval,
+    Failed,
 }
 
 fn offensive_plan_steps(harness_kind: HarnessKind, intent: &TaskIntent) -> Vec<String> {
@@ -2527,6 +2650,35 @@ fn event_to_transcript_line(event: &OrchestrationEvent) -> String {
         OrchestrationEvent::InteractionEnd { .. } => "[coord] executor returned".to_string(),
         OrchestrationEvent::TurnAborted { reason, .. } => format!("[turn] aborted {}", reason),
     }
+}
+
+fn classify_action_risk(action: &str, objective: Option<&str>) -> RiskProfile {
+    let action = action.to_lowercase();
+    let objective = objective.unwrap_or_default().to_lowercase();
+    let combined = format!("{} {}", action, objective);
+    if combined.contains("lateral movement")
+        || combined.contains("initial access")
+        || combined.contains("exploit")
+        || combined.contains("persistence")
+        || combined.contains("exfiltration")
+    {
+        RiskProfile::Critical
+    } else if combined.contains("enumerate")
+        || combined.contains("attack surface")
+        || combined.contains("vulnerability")
+        || combined.contains("recon")
+    {
+        RiskProfile::High
+    } else {
+        RiskProfile::Moderate
+    }
+}
+
+fn approval_request_id(cell: CellId, action: &str, risk: RiskProfile) -> Uuid {
+    let mut bytes = [0u8; 16];
+    let hash = simple_hash(&format!("{}:{}:{:?}", cell.0, action, risk));
+    bytes.copy_from_slice(&hash[..16]);
+    Uuid::from_bytes(bytes)
 }
 
 #[derive(Debug)]

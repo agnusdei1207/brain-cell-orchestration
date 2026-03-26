@@ -168,6 +168,12 @@ Design implication:
 - retry and failover policy must be reason-aware
 - post-run session metadata must be persisted
 
+Current implementation note:
+
+- local session artifacts now include persisted `plan.jsonl`, `transcript.jsonl`, and `approvals.jsonl`
+- approval-gated offensive objectives already rehydrate as waiting sessions on `bco resume`
+- the next priority is not inventing more persistence types, but connecting those persisted states to richer autonomous execution
+
 ## 8. Proposed Runtime Model
 
 The runtime should be composed from eight layers:
