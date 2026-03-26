@@ -3,20 +3,23 @@ use bco_core::{
     ActiveModelState, ModelRef, ModelSwitchReason, ModelSwitchEvent,
     ModelFallbackPolicy,
 };
-use bco_session::{SessionRuntime, TokenUsage};
+use bco_session::{SessionRuntime, TokenUsage, SessionLayout};
 use bco_harness::{HarnessRegistry, HarnessKind, PlanPolicy, ReviewPolicy, CapabilityPolicy};
 use bco_session::SessionBootstrap;
 use bco_tui::TuiBlueprint;
 use uuid::Uuid;
+use serde::Serialize;
+use std::io::Write;
 use std::sync::RwLock;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 // =============================================================================
 // A4: Operation and Control-Plane Contract
 // =============================================================================
 
 /// Unique identifier for a cell
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 pub struct CellId(pub Uuid);
 
 impl CellId {
@@ -682,6 +685,22 @@ impl ModelManager {
             });
         }
         None
+    }
+
+    /// Switch to the fallback model if one is configured
+    pub fn switch_to_fallback(&self, fallback: ModelRef) {
+        let mut state = self.active_model.write().unwrap();
+        if let Some(ref mut active) = *state {
+            let old_model = active.current.clone();
+            // Move current to fallback, set new fallback
+            active.fallback = Some(old_model);
+            active.current = fallback;
+            active.switch_count += 1;
+
+            // Reset retry count on switch
+            let mut retries = self.retry_state.write().unwrap();
+            retries.remove(&active.current.to_string());
+        }
     }
 
     /// Handle a model failure and determine if fallback should occur
@@ -1426,20 +1445,22 @@ pub enum DeliveryMode {
 /// Submission queue type (operator input -> orchestrator)
 #[derive(Debug)]
 pub struct SubmissionQueue {
-    messages: Vec<OperatorInput>,
+    messages: std::collections::VecDeque<OperatorInput>,
 }
 
 impl SubmissionQueue {
     pub fn new() -> Self {
-        Self { messages: Vec::new() }
+        Self {
+            messages: std::collections::VecDeque::new(),
+        }
     }
 
     pub fn enqueue(&mut self, input: OperatorInput) {
-        self.messages.push(input);
+        self.messages.push_back(input);
     }
 
     pub fn dequeue(&mut self) -> Option<OperatorInput> {
-        self.messages.pop()
+        self.messages.pop_front()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -1488,6 +1509,10 @@ impl EventQueue {
     pub fn drain(&mut self) -> Vec<OrchestrationEvent> {
         std::mem::take(&mut self.events)
     }
+
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
 }
 
 impl Default for EventQueue {
@@ -1497,7 +1522,7 @@ impl Default for EventQueue {
 }
 
 /// Core orchestration event categories
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum OrchestrationEvent {
     /// Cell lifecycle events
     CellSpawned { cell: CellId, parent: Option<CellId>, cell_type: &'static str },
@@ -1678,7 +1703,8 @@ impl Default for MessageBus {
 /// Session actor queue - ensures serialized session mutations
 #[derive(Debug)]
 pub struct SessionActorQueue {
-    inner: StdRwLock<SessionActorState>,
+    /// Per-session state tracking (replaces global gate)
+    session_states: StdRwLock<HashMap<bco_session::SessionId, SessionActorState>>,
     pending_count: StdRwLock<HashMap<bco_session::SessionId, u32>>,
 }
 
@@ -1692,29 +1718,43 @@ enum SessionActorState {
 impl SessionActorQueue {
     pub fn new() -> Self {
         Self {
-            inner: StdRwLock::new(SessionActorState::Idle),
+            session_states: StdRwLock::new(HashMap::new()),
             pending_count: StdRwLock::new(HashMap::new()),
         }
     }
 
     /// Check if a session is currently processing
     pub fn is_processing(&self, session_id: bco_session::SessionId) -> bool {
-        let count = self.pending_count.read().unwrap();
-        *count.get(&session_id).unwrap_or(&0) > 0
+        let states = self.session_states.read().unwrap();
+        match states.get(&session_id) {
+            Some(state) => *state != SessionActorState::Idle,
+            None => false,
+        }
     }
 
     /// Enqueue an operation for a session
+    /// Returns true if session was idle and is now processing, false if already busy
     pub fn enqueue(&self, session_id: bco_session::SessionId) -> bool {
-        let mut state = self.inner.write().unwrap();
-        if *state == SessionActorState::Processing {
-            // Already processing, just increment pending
-            let mut count = self.pending_count.write().unwrap();
-            *count.entry(session_id).or_insert(0) += 1;
-            return false;
+        let mut states = self.session_states.write().unwrap();
+
+        // Check this session's current state
+        match states.get(&session_id) {
+            Some(state) if *state != SessionActorState::Idle => {
+                // Session is already processing or busy, just increment pending
+                drop(states);
+                let mut count = self.pending_count.write().unwrap();
+                *count.entry(session_id).or_insert(0) += 1;
+                return false;
+            }
+            _ => {
+                // Session is idle (or new), set to processing
+                states.insert(session_id, SessionActorState::Processing);
+            }
         }
-        *state = SessionActorState::Processing;
+
+        // Initialize pending count if needed
         let mut count = self.pending_count.write().unwrap();
-        count.insert(session_id, 1);
+        *count.entry(session_id).or_insert(0) += 1;
         true
     }
 
@@ -1725,8 +1765,10 @@ impl SessionActorQueue {
             *c = c.saturating_sub(1);
             if *c == 0 {
                 count.remove(&session_id);
-                let mut state = self.inner.write().unwrap();
-                *state = SessionActorState::Idle;
+                // Clear session state to idle
+                drop(count);
+                let mut states = self.session_states.write().unwrap();
+                states.remove(&session_id);
             }
         }
     }
@@ -1739,8 +1781,9 @@ impl SessionActorQueue {
 
     /// Force state to busy (when session is handling multiple operations)
     pub fn set_busy(&self, session_id: bco_session::SessionId) {
-        let mut state = self.inner.write().unwrap();
-        *state = SessionActorState::Busy;
+        let mut states = self.session_states.write().unwrap();
+        states.insert(session_id, SessionActorState::Busy);
+        drop(states);
         let mut count = self.pending_count.write().unwrap();
         *count.entry(session_id).or_insert(0) += 1;
     }
@@ -1758,6 +1801,22 @@ impl Default for SessionActorQueue {
 
 use std::sync::Arc;
 
+/// Event log wrapper that implements the timestamp trait for persistence
+#[derive(Debug, Clone)]
+struct EventLogEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    event: OrchestrationEvent,
+}
+
+impl serde::Serialize for EventLogEntry {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.event.serialize(serializer)
+    }
+}
+
 /// Orchestrator runtime - wired execution loop
 #[derive(Debug)]
 pub struct OrchestratorRuntime {
@@ -1767,6 +1826,8 @@ pub struct OrchestratorRuntime {
     submission_queue: Arc<std::sync::RwLock<SubmissionQueue>>,
     session_queue: Arc<SessionActorQueue>,
     services: RuntimeServices,
+    /// Optional session layout for event persistence
+    session_layout: Option<SessionLayout>,
 }
 
 impl OrchestratorRuntime {
@@ -1778,7 +1839,49 @@ impl OrchestratorRuntime {
             submission_queue: Arc::new(std::sync::RwLock::new(SubmissionQueue::new())),
             session_queue: Arc::new(SessionActorQueue::new()),
             services,
+            session_layout: None,
         }
+    }
+
+    /// Set the session layout for event persistence
+    pub fn with_session_layout(mut self, layout: SessionLayout) -> Self {
+        self.session_layout = Some(layout);
+        self
+    }
+
+    /// Persist any queued events to the event log file
+    pub fn flush_events(&self) -> std::io::Result<()> {
+        let Some(layout) = &self.session_layout else {
+            return Ok(()); // No layout configured, skip persistence
+        };
+
+        let events = {
+            let mut orch = self.orchestrator.write().unwrap();
+            orch.event_queue.drain()
+        };
+
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        let path = layout.orchestrator_events_jsonl();
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+
+        let mut file = std::io::BufWriter::new(file);
+        for event in events {
+            let entry = EventLogEntry {
+                timestamp: chrono::Utc::now(),
+                event,
+            };
+            let json = serde_json::to_string(&entry)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            writeln!(file, "{}", json)?;
+        }
+        file.flush()?;
+        Ok(())
     }
 
     /// Submit operator input to the orchestrator
@@ -1801,22 +1904,30 @@ impl OrchestratorRuntime {
 
     /// Process one turn - main runtime loop step
     pub fn process_turn(&self, ctx: &ExecutionContext) -> Result<TurnResult, RuntimeError> {
-        let mut orch = self.orchestrator.write().unwrap();
-
         // Process submission queue
         let input = {
             let mut queue = self.submission_queue.write().unwrap();
             queue.dequeue()
         };
 
-        if let Some(input) = input {
-            self.handle_operator_input(&mut orch, input)?;
-        }
+        // Process input and emit events under write lock
+        {
+            let mut orch = self.orchestrator.write().unwrap();
 
-        // Emit turn submitted event
-        orch.emit_event(OrchestrationEvent::TurnSubmitted {
-            objective_id: ctx.objective_id,
-        });
+            if let Some(input) = input {
+                self.handle_operator_input(&mut orch, input)?;
+            }
+
+            // Emit turn submitted event
+            orch.emit_event(OrchestrationEvent::TurnSubmitted {
+                objective_id: ctx.objective_id,
+            });
+        } // Lock released here
+
+        // Persist events after releasing lock
+        if let Err(e) = self.flush_events() {
+            eprintln!("Warning: failed to persist events: {}", e);
+        }
 
         Ok(TurnResult::Processed)
     }
@@ -1867,6 +1978,40 @@ impl OrchestratorRuntime {
     /// Get the message bus
     pub fn message_bus(&self) -> &MessageBus {
         &self.message_bus
+    }
+
+    /// Handle a model failure and potentially switch to fallback
+    /// Returns the retry delay in milliseconds if retry is recommended
+    pub fn handle_model_failure(&self, error: &str) -> Option<u64> {
+        let active_model = self.services.model_manager.get_active()?;
+        let model_ref = active_model.current.clone();
+
+        let recommendation = self.services.model_manager.handle_model_failure(&model_ref, error);
+
+        // Emit model switch event if we should switch
+        if recommendation.should_switch {
+            let mut orch = self.orchestrator.write().unwrap();
+            orch.emit_event(OrchestrationEvent::ModelSwitch {
+                from: model_ref.to_string(),
+                to: recommendation.fallback_model
+                    .as_ref()
+                    .map(|m| m.to_string())
+                    .unwrap_or_else(|| "fallback".to_string()),
+                reason: format!("{:?}", recommendation.reason),
+            });
+        }
+
+        // If there's a fallback model, switch to it
+        if let Some(fallback) = recommendation.fallback_model {
+            self.services.model_manager.switch_to_fallback(fallback);
+        }
+
+        // Return retry delay if we should wait before retry
+        if recommendation.retry_delay_ms > 0 {
+            return Some(recommendation.retry_delay_ms);
+        }
+
+        None
     }
 
     /// Get event queue for UI consumption
