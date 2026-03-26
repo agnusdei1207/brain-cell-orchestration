@@ -16,6 +16,8 @@ The core product goal is simple: infer operator intent, mount the right harness 
 
 The runtime should also remain resumable and automation-ready instead of behaving like a stateless prompt shell.
 
+The key project insight is that model quality is important, but orchestration quality matters more. Domain changes should come from swapping thin harnesses on top of one strong orchestration core.
+
 ## Design Principles
 
 - Rust only

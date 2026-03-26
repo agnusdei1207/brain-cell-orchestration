@@ -23,6 +23,19 @@ Instruction for implementation agents:
 - every milestone must end with a commit and push
 - every item marked `verify` must be checked before proceeding
 
+## Core Insight
+
+This project exists because the prior lesson was clear:
+
+- stronger models alone do not win consistently
+- stronger orchestration structure matters more
+- task switching should be handled by swapping thin harnesses
+- the orchestration core should stay common across domains
+
+Implementation rule:
+
+- if a change makes a harness thicker but the core weaker, it is moving in the wrong direction
+
 ## Current Repo Audit
 
 This section records what appears to be implemented already versus what is still only planned.

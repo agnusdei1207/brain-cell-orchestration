@@ -6,6 +6,13 @@
 
 The stable center is the orchestration spine. Everything else should plug into that spine through explicit contracts.
 
+Project insight:
+
+- the main performance lever is orchestration quality, not only model quality
+- domain adaptation should come from swapping thin harnesses over one strong core
+- the core must own planning, control, messaging, approvals, persistence, and observability
+- harnesses must remain policy-driven overlays on that core
+
 The orchestration reference point is Codex-style goal-directed execution. OpenClaw is the reference for autonomy and persistence behaviors. OpenCode is the reference for provider-agnostic model connectivity and fast switching. Claude Code is only a terminal UX reference.
 
 Reference extraction details live in [REFERENCE_ANALYSIS.md](/Users/pf/workspace/brain-cell-orchestration/docs/research/REFERENCE_ANALYSIS.md).
@@ -191,6 +198,12 @@ Each harness should answer:
 - what safety posture it requires
 - how it decides done vs replan
 - which model profiles it prefers or forbids
+
+Non-negotiable harness rule:
+
+- a harness must stay thin
+- it may shape policy, planning heuristics, tool preference, review rubric, and completion criteria
+- it must not become a second orchestration core
 
 Minimal future trait sketch:
 

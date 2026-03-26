@@ -29,6 +29,14 @@ Current agent tools often fail in one of two ways:
 
 This lets one runtime execute many classes of work without turning into a monolith.
 
+Core insight from this project reset:
+
+- model quality matters, but orchestration structure matters more
+- domain switching should come from thin harness replacement, not separate thick runtimes
+- the stable center should be the orchestration spine
+- harnesses should stay thin, swappable, and policy-driven
+- the model layer should remain replaceable underneath that spine
+
 ## 3. Benchmark Targets
 
 ### Codex traits to benchmark
@@ -185,6 +193,12 @@ Each harness should define:
 - completion rubric
 - whether it can continue autonomously after an interruption
 - preferred model profile and fallback behavior
+
+Harness design rule:
+
+- harnesses are thin policy layers, not separate runtimes
+- they should adjust decomposition, tool preference, review style, and artifact expectations
+- they should not reimplement orchestration, persistence, approval, or session management
 
 Initial target harnesses:
 
