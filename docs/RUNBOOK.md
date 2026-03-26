@@ -46,8 +46,8 @@ This section records what appears to be implemented already versus what is still
 - [x] reason-aware failover is not yet implemented in Rust runtime (ModelManager.handle_model_failure with reason classification, retry delays)
 - [x] auth profile rotation and cooldown system is not yet implemented (AuthProfile, AuthCredentials, AuthProfileState, AuthRotationPolicy, AuthRotationManager with cooldown tracking)
 - [x] hook-driven automation and memory flushes are not yet implemented (HookRegistry, HookEvent, HookAction, CheckpointManager.trigger_hooks with MemoryFlushPolicy automation)
-- [ ] subtree shutdown and lineage persistence need verification in code, not just types
-- [ ] session writeback files and append-only logs need implementation verification
+- [x] subtree shutdown and lineage persistence need verification in code, not just types (Blackboard::shutdown_subtree recursively marks cells Cancelled, lineage tracked in BlackboardState)
+- [x] session writeback files and append-only logs need implementation verification (SessionBootstrap writes session_runtime.json, append_jsonl for all log files)
 - [x] CTF harness is still placeholder-level, not competition-ready (now has challenge-type classification, tool hints, artifact expectations per type)
 - [x] current main Dockerfile is not yet aligned with the requested Kali runtime path
 
