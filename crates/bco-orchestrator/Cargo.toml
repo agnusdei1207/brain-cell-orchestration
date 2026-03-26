@@ -11,6 +11,9 @@ bco-core = { path = "../bco-core" }
 bco-harness = { path = "../bco-harness" }
 bco-session = { path = "../bco-session" }
 bco-tui = { path = "../bco-tui" }
+uuid.workspace = true
+chrono.workspace = true
+serde.workspace = true
 
 [lints]
 workspace = true

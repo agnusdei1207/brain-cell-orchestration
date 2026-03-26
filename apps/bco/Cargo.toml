@@ -12,6 +12,7 @@ bco-harness = { path = "../../crates/bco-harness" }
 bco-orchestrator = { path = "../../crates/bco-orchestrator" }
 bco-session = { path = "../../crates/bco-session" }
 bco-tui = { path = "../../crates/bco-tui" }
+clap = { version = "4", features = ["derive"] }
 
 [lints]
 workspace = true

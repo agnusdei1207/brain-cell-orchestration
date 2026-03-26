@@ -6,6 +6,12 @@ version.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[dependencies]
+uuid.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
 [lints]
 workspace = true
 
