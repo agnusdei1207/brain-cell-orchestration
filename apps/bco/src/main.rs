@@ -504,9 +504,12 @@ fn approval_command(
                 });
                 let _ = append_jsonl_line(&session_dir.join("transcript.jsonl"), &paused_transcript);
                 let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Paused);
+                let pending_objective_id = load_latest_plan_entry(&session_dir)
+                    .map(|plan| plan.objective_id)
+                    .unwrap_or_else(|_| snapshot.meta.id.to_string());
                 let _ = rewrite_pending_work(
                     &session_dir,
-                    &snapshot.meta.id.to_string(),
+                    &pending_objective_id,
                     std::slice::from_ref(action),
                 );
             }
@@ -1063,6 +1066,7 @@ fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, Str
     let events_path = session_dir.join("orchestrator_events.jsonl");
     let events_content = fs::read_to_string(&events_path)
         .map_err(|e| format!("Failed to read orchestrator events: {}", e))?;
+    let meta = load_session_meta(session_dir)?;
     let pending_approvals = parse_pending_approvals(session_dir).unwrap_or_default();
     let pending_work = parse_pending_work(session_dir).unwrap_or_default();
 
@@ -1078,7 +1082,14 @@ fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, Str
 
         let entry: CellTopologyLogEntry = serde_json::from_str(line)
             .map_err(|e| format!("Failed to parse cell topology line: {}", e))?;
-        let status = if has_pending_approval {
+        let status = if meta.state == SessionState::Paused && has_pending_work {
+            match entry.cell_type.as_str() {
+                "planner" => "completed",
+                "coordinator" | "executor" => "paused",
+                "reviewer" => "idle",
+                _ => "idle",
+            }
+        } else if has_pending_approval {
             match entry.cell_type.as_str() {
                 "planner" => "completed",
                 "coordinator" | "executor" => "waiting",
@@ -1171,6 +1182,9 @@ fn print_session_snapshot(snapshot: &SessionSnapshot) {
     }
     if let Some(ref next_action) = snapshot.next_action {
         println!("  Next action: {}", next_action);
+    }
+    if snapshot.meta.state == SessionState::Paused && !snapshot.pending_work.is_empty() {
+        println!("  Pause reason: operator denial or manual stop; pending work is preserved locally");
     }
     if !snapshot.plan_steps.is_empty() {
         println!("  Plan:");

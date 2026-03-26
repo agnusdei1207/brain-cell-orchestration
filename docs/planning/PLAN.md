@@ -180,6 +180,7 @@ Current implementation note:
 - local review output now surfaces `pending_work.jsonl`, which gives operators a clearer wake/resume picture than plan state alone
 - initial `bco exec` now seeds `pending_work.jsonl` as well, so the first approval-gated step is visible immediately in local review
 - local `review` and `continue` now treat `pending_work.jsonl` as the primary next-action queue, using plan position only as fallback
+- local denied sessions now preserve the denied action in `pending_work.jsonl` and render as paused rather than implicitly running
 - the next priority is not inventing more persistence types, but connecting those persisted states to richer autonomous execution
 
 ## 8. Proposed Runtime Model
