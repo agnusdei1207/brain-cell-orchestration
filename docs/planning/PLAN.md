@@ -184,6 +184,7 @@ Current implementation note:
 - local `resume` now preserves the stored session state, so paused and completed sessions rehydrate faithfully instead of being reactivated by the CLI
 - the top-level `bco review` list now surfaces paused-session hints and pending-work counts so operators can triage sessions without opening each one
 - local `continue` now acts as the explicit re-entry path for paused sessions, reopening preserved pending work and re-requesting approval when risk is still high
+- risk classification now prioritizes the active step itself over the broader offensive objective, which keeps documentation/reporting work from being over-gated
 - the next priority is not inventing more persistence types, but connecting those persisted states to richer autonomous execution
 
 ## 8. Proposed Runtime Model

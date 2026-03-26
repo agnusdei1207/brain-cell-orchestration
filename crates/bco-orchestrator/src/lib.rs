@@ -2657,20 +2657,42 @@ fn event_to_transcript_line(event: &OrchestrationEvent) -> String {
 fn classify_action_risk(action: &str, objective: Option<&str>) -> RiskProfile {
     let action = action.to_lowercase();
     let objective = objective.unwrap_or_default().to_lowercase();
+
+    if action.contains("document")
+        || action.contains("evidence")
+        || action.contains("impact")
+        || action.contains("operator actions")
+        || action.contains("report")
+        || action.contains("summary")
+    {
+        return RiskProfile::Moderate;
+    }
+
+    if action.contains("confirm target scope")
+        || action.contains("guardrails")
+        || action.contains("scope")
+    {
+        return RiskProfile::High;
+    }
+
+    if action.contains("enumerate")
+        || action.contains("attack surface")
+        || action.contains("vulnerability")
+        || action.contains("recon")
+    {
+        return RiskProfile::High;
+    }
+
     let combined = format!("{} {}", action, objective);
     if combined.contains("lateral movement")
         || combined.contains("initial access")
         || combined.contains("exploit")
         || combined.contains("persistence")
         || combined.contains("exfiltration")
+        || combined.contains("escalation")
+        || combined.contains("chain access")
     {
         RiskProfile::Critical
-    } else if combined.contains("enumerate")
-        || combined.contains("attack surface")
-        || combined.contains("vulnerability")
-        || combined.contains("recon")
-    {
-        RiskProfile::High
     } else {
         RiskProfile::Moderate
     }
