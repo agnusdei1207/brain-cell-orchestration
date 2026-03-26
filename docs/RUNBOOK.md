@@ -48,7 +48,7 @@ This section records what appears to be implemented already versus what is still
 - [ ] hook-driven automation and memory flushes are not yet implemented
 - [ ] subtree shutdown and lineage persistence need verification in code, not just types
 - [ ] session writeback files and append-only logs need implementation verification
-- [ ] CTF harness is still placeholder-level, not competition-ready
+- [x] CTF harness is still placeholder-level, not competition-ready (now has challenge-type classification, tool hints, artifact expectations per type)
 - [x] current main Dockerfile is not yet aligned with the requested Kali runtime path
 
 ### Local worktree note

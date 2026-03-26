@@ -196,29 +196,192 @@ impl CtfHarness {
         ]
     }
 
-    /// Get evidence expectations for CTF
+    /// Classify CTF challenge type from objective text
+    pub fn classify_challenge(&self, objective: &str) -> CtfChallengeType {
+        let objective_lower = objective.to_lowercase();
+
+        // Attack-Defense indicators
+        if objective_lower.contains("tcpp") || objective_lower.contains("ticketticket") ||
+           objective_lower.contains("box") || objective_lower.contains("service") ||
+           objective_lower.contains("network") || objective_lower.contains("root") {
+            return CtfChallengeType::AttackDefense;
+        }
+
+        // Jeopardy indicators
+        if objective_lower.contains("jeopardy") || objective_lower.contains("solving") ||
+           objective_lower.contains("challenge") {
+            if objective_lower.contains("web") || objective_lower.contains("sql") ||
+               objective_lower.contains("xss") || objective_lower.contains("ssrf") {
+                return CtfChallengeType::Web;
+            }
+            if objective_lower.contains("pwn") || objective_lower.contains("buffer") ||
+               objective_lower.contains("overflow") || objective_lower.contains("rop") {
+                return CtfChallengeType::Pwn;
+            }
+            if objective_lower.contains("crypto") || objective_lower.contains("rsa") ||
+               objective_lower.contains("aes") || objective_lower.contains("encrypt") {
+                return CtfChallengeType::Crypto;
+            }
+            if objective_lower.contains("rev") || objective_lower.contains("reverse") ||
+               objective_lower.contains("binary") || objective_lower.contains("elf") {
+                return CtfChallengeType::Reversing;
+            }
+            if objective_lower.contains("forensic") || objective_lower.contains("memory") ||
+               objective_lower.contains("disk") || objective_lower.contains("pcap") {
+                return CtfChallengeType::Forensics;
+            }
+            return CtfChallengeType::Misc;
+        }
+
+        CtfChallengeType::Misc
+    }
+
+    /// Get CTF-specific tool hints for a challenge type
+    pub fn tool_hints(&self, challenge_type: CtfChallengeType) -> Vec<&'static str> {
+        match challenge_type {
+            CtfChallengeType::Web => vec![
+                "ffuf", "gobuster", "nikto", "sqlmap", "xsstrike",
+                "ssrfmap", "commix", "dirb", "wfuzz", "burpsuite",
+            ],
+            CtfChallengeType::Pwn => vec![
+                "pwntools", "ROPgadget", "one_gadget", "checksec",
+                "objdump", "radare2", "ghidra", "ida", "binary ninja",
+            ],
+            CtfChallengeType::Crypto => vec![
+                "openssl", "sage", "python3", " factorization", "垫片",
+                "cribdrag", "quipperup", "rsatool", " Padding oracle",
+            ],
+            CtfChallengeType::Reversing => vec![
+                "ghidra", "ida", "binary ninja", "radare2", "objdump",
+                "strings", "hexdump", "ltrace", "strace", "hopper",
+            ],
+            CtfChallengeType::Forensics => vec![
+                "volatility", "autopsy", "foremost", "binwalk", "scalpel",
+                "tcpdump", "wireshark", "zeek", "bulk_extractor", "memory forensics",
+            ],
+            CtfChallengeType::Misc => vec![
+                "nc", "netcat", "python3", "bash", "curl", "wget",
+                "jq", "grep", "awk", "sed",
+            ],
+            CtfChallengeType::AttackDefense => vec![
+                "nmap", "masscan", "metasploit", "BurpSuite", "sqlmap",
+                "goby", "nuclei", "ffuf", "hydra", "john", "crackmapexec",
+            ],
+        }
+    }
+
+    /// Get artifact expectations for CTF
     pub fn evidence_expectations(&self) -> CtfEvidenceExpectations {
         CtfEvidenceExpectations {
             flag_captured: true,
             exploit_script: true,
             methodology_notes: true,
-            screenshots: false, // Usually not required
+            screenshots: false,
+        }
+    }
+
+    /// Get artifact expectations for a specific challenge type
+    pub fn artifact_expectations(&self, challenge_type: CtfChallengeType) -> CtfArtifactExpectations {
+        match challenge_type {
+            CtfChallengeType::Web => CtfArtifactExpectations {
+                flag_file: true,
+                exploit_script: true,
+                methodology_notes: true,
+                screenshots: false,
+                network_capture: true,
+                db_dump: false,
+            },
+            CtfChallengeType::Pwn => CtfArtifactExpectations {
+                flag_file: true,
+                exploit_script: true,
+                methodology_notes: true,
+                screenshots: false,
+                network_capture: false,
+                db_dump: false,
+            },
+            CtfChallengeType::Crypto => CtfArtifactExpectations {
+                flag_file: true,
+                exploit_script: true,
+                methodology_notes: true,
+                screenshots: false,
+                network_capture: false,
+                db_dump: false,
+            },
+            CtfChallengeType::Reversing => CtfArtifactExpectations {
+                flag_file: true,
+                exploit_script: false,
+                methodology_notes: true,
+                screenshots: false,
+                network_capture: false,
+                db_dump: false,
+            },
+            CtfChallengeType::Forensics => CtfArtifactExpectations {
+                flag_file: true,
+                exploit_script: false,
+                methodology_notes: true,
+                screenshots: true,
+                network_capture: true,
+                db_dump: false,
+            },
+            CtfChallengeType::Misc => CtfArtifactExpectations {
+                flag_file: true,
+                exploit_script: true,
+                methodology_notes: true,
+                screenshots: false,
+                network_capture: false,
+                db_dump: false,
+            },
+            CtfChallengeType::AttackDefense => CtfArtifactExpectations {
+                flag_file: true,
+                exploit_script: true,
+                methodology_notes: true,
+                screenshots: false,
+                network_capture: true,
+                db_dump: true,
+            },
         }
     }
 
     /// Narrow down next steps for high signal
     pub fn narrow_next_steps(&self, findings: &[String]) -> Vec<String> {
-        // Filter for high-signal findings
         findings.iter()
             .filter(|f| {
                 f.contains("flag") ||
                 f.contains("vulnerability") ||
                 f.contains("exploit") ||
                 f.contains("password") ||
-                f.contains("key")
+                f.contains("key") ||
+                f.contains("root") ||
+                f.contains("admin")
             })
             .cloned()
             .collect()
+    }
+}
+
+/// CTF challenge types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CtfChallengeType {
+    Web,
+    Pwn,
+    Crypto,
+    Reversing,
+    Forensics,
+    Misc,
+    AttackDefense,
+}
+
+impl CtfChallengeType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Web => "web",
+            Self::Pwn => "pwn",
+            Self::Crypto => "crypto",
+            Self::Reversing => "reversing",
+            Self::Forensics => "forensics",
+            Self::Misc => "misc",
+            Self::AttackDefense => "attack-defense",
+        }
     }
 }
 
@@ -245,6 +408,17 @@ pub struct CtfEvidenceExpectations {
     pub exploit_script: bool,
     pub methodology_notes: bool,
     pub screenshots: bool,
+}
+
+/// Challenge-type specific artifact expectations
+#[derive(Debug, Clone)]
+pub struct CtfArtifactExpectations {
+    pub flag_file: bool,
+    pub exploit_script: bool,
+    pub methodology_notes: bool,
+    pub screenshots: bool,
+    pub network_capture: bool,
+    pub db_dump: bool,
 }
 
 impl Default for CtfHarness {
