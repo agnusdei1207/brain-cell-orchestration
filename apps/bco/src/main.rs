@@ -151,7 +151,13 @@ fn exec_command(objective: &[String]) {
     let capability_policy = harness.capability_policy();
     let plan_policy = harness.plan_policy();
     let review_policy = harness.review_policy();
-    let services = RuntimeServices::new(capability_policy);
+    let mut services = RuntimeServices::new(capability_policy);
+    services.provider_registry = load_provider_registry();
+    if let Ok(model) = load_current_model() {
+        if let Ok(model_ref) = ModelRef::parse(&model) {
+            services.model_manager.set_active(model_ref);
+        }
+    }
     let runtime = OrchestratorRuntime::new(registry, services)
         .with_session_layout(session.layout().clone());
     let orchestrator = BrainCellOrchestrator::new(HarnessRegistry::with_defaults());
