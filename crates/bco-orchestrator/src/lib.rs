@@ -631,6 +631,17 @@ impl RuntimeServices {
 pub struct ModelManager {
     active_model: RwLock<Option<ActiveModelState>>,
     fallback_policy: ModelFallbackPolicy,
+    /// Retry state per model (reason -> retry count)
+    retry_state: RwLock<HashMap<String, u8>>,
+}
+
+/// Recommendation for model switch after failure
+#[derive(Debug)]
+pub struct ModelSwitchRecommendation {
+    pub should_switch: bool,
+    pub reason: ModelSwitchReason,
+    pub fallback_model: Option<ModelRef>,
+    pub retry_delay_ms: u64,
 }
 
 impl ModelManager {
@@ -638,6 +649,7 @@ impl ModelManager {
         Self {
             active_model: RwLock::new(None),
             fallback_policy: ModelFallbackPolicy::default(),
+            retry_state: RwLock::new(HashMap::new()),
         }
     }
 
@@ -654,7 +666,14 @@ impl ModelManager {
         let mut state = self.active_model.write().unwrap();
         if let Some(ref mut active) = *state {
             let old_model = active.current.clone();
-            active.switch_to(new_model);
+            active.switch_to(new_model.clone());
+
+            // Reset retry count on successful switch
+            if reason == ModelSwitchReason::Manual {
+                let mut retries = self.retry_state.write().unwrap();
+                retries.remove(&new_model.to_string());
+            }
+
             return Some(ModelSwitchEvent {
                 timestamp: chrono::Utc::now(),
                 from: old_model,
@@ -663,6 +682,109 @@ impl ModelManager {
             });
         }
         None
+    }
+
+    /// Handle a model failure and determine if fallback should occur
+    pub fn handle_model_failure(&self, model: &ModelRef, error: &str) -> ModelSwitchRecommendation {
+        let reason = self.classify_failure_reason(error);
+        let model_str = model.to_string();
+
+        // Increment retry count
+        {
+            let mut retries = self.retry_state.write().unwrap();
+            let count = retries.entry(model_str.clone()).or_insert(0);
+            *count += 1;
+        }
+
+        // Check if we've exceeded retries for this reason
+        let retries = self.retry_state.read().unwrap();
+        let current_retries = *retries.get(&model_str).unwrap_or(&0);
+        let max_retries = self.fallback_policy.max_retries;
+
+        if current_retries >= max_retries {
+            return ModelSwitchRecommendation {
+                should_switch: true,
+                reason,
+                fallback_model: None,
+                retry_delay_ms: self.get_retry_delay(reason),
+            };
+        }
+
+        // Rate limit errors should wait longer
+        if reason == ModelSwitchReason::RateLimit {
+            return ModelSwitchRecommendation {
+                should_switch: false,
+                reason,
+                fallback_model: None,
+                retry_delay_ms: self.get_retry_delay(reason),
+            };
+        }
+
+        // Auth failures need intervention
+        if reason == ModelSwitchReason::AuthFailure {
+            return ModelSwitchRecommendation {
+                should_switch: false,
+                reason,
+                fallback_model: None,
+                retry_delay_ms: self.get_retry_delay(reason),
+            };
+        }
+
+        ModelSwitchRecommendation {
+            should_switch: false,
+            reason,
+            fallback_model: None,
+            retry_delay_ms: self.get_retry_delay(reason),
+        }
+    }
+
+    /// Classify failure reason from error message
+    fn classify_failure_reason(&self, error: &str) -> ModelSwitchReason {
+        let error_lower = error.to_lowercase();
+
+        if error_lower.contains("rate limit") || error_lower.contains("429") ||
+           error_lower.contains("too many requests") || error_lower.contains("quota") {
+            return ModelSwitchReason::RateLimit;
+        }
+
+        if error_lower.contains("auth") || error_lower.contains("401") ||
+           error_lower.contains("unauthorized") || error_lower.contains("invalid api key") ||
+           error_lower.contains("permission denied") {
+            return ModelSwitchReason::AuthFailure;
+        }
+
+        if error_lower.contains("not found") || error_lower.contains("404") ||
+           error_lower.contains("model not found") || error_lower.contains("unknown model") {
+            return ModelSwitchReason::ModelNotFound;
+        }
+
+        if error_lower.contains("provider") || error_lower.contains("connection") ||
+           error_lower.contains("timeout") || error_lower.contains("network") ||
+           error_lower.contains("503") || error_lower.contains("502") {
+            return ModelSwitchReason::ProviderError;
+        }
+
+        ModelSwitchReason::ProviderError
+    }
+
+    /// Get retry delay based on failure reason
+    fn get_retry_delay(&self, reason: ModelSwitchReason) -> u64 {
+        match reason {
+            ModelSwitchReason::RateLimit => self.fallback_policy.retry_delay_ms * 10,
+            ModelSwitchReason::AuthFailure => self.fallback_policy.retry_delay_ms * 5,
+            ModelSwitchReason::ProviderError => self.fallback_policy.retry_delay_ms * 2,
+            _ => self.fallback_policy.retry_delay_ms,
+        }
+    }
+
+    /// Check if fallback is enabled
+    pub fn is_fallback_enabled(&self) -> bool {
+        self.fallback_policy.enabled
+    }
+
+    /// Update fallback policy
+    pub fn set_fallback_policy(&mut self, policy: ModelFallbackPolicy) {
+        self.fallback_policy = policy;
     }
 }
 
