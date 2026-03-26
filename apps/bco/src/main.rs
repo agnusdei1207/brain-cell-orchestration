@@ -1,9 +1,24 @@
 use clap::{Parser, Subcommand};
-use bco_core::{IntentDomain, RiskProfile, TaskIntent};
+use bco_core::{
+    IntentDomain, RiskProfile, TaskIntent, ModelRef, ProviderRef, ConnectionProfile,
+    ConnectionState, ProviderRegistry, ObjectiveId,
+};
 use bco_harness::HarnessRegistry;
-use bco_orchestrator::BrainCellOrchestrator;
-use bco_session::SessionBootstrap;
+use bco_orchestrator::{
+    BrainCellOrchestrator, OrchestratorRuntime, RuntimeServices, OperatorInput,
+    ExecutionContext, CellIdentity, CellType,
+};
+use bco_session::{SessionBootstrap, SessionMeta, SessionState};
 use bco_tui::{TuiBlueprint, TuiState};
+use serde::{Serialize, Deserialize};
+use std::path::PathBuf;
+use std::fs;
+
+/// Provider config file path
+const PROVIDER_CONFIG_PATH: &str = ".bco/providers.json";
+
+/// Model config file path
+const MODEL_CONFIG_PATH: &str = ".bco/model_state.json";
 
 #[derive(Parser)]
 #[command(name = "bco")]
@@ -55,7 +70,7 @@ enum ProviderAction {
     List,
     /// Add a new provider connection
     Add {
-        /// Provider name (e.g., anthropic, openai)
+        /// Provider name (e.g., anthropic, openai, ollama)
         name: String,
         /// Provider endpoint (optional)
         endpoint: Option<String>,
@@ -109,9 +124,14 @@ fn main() {
 }
 
 fn exec_command(objective: &[String]) {
+    let objective_text = if objective.is_empty() {
+        "bootstrap a dynamic orchestration runtime".to_string()
+    } else {
+        objective.join(" ")
+    };
     let intent = TaskIntent::new(
-        objective.join(" "),
-        IntentDomain::GeneralEngineering,
+        objective_text.clone(),
+        infer_domain(&objective_text),
         RiskProfile::Moderate,
     );
     let session = SessionBootstrap::new("local-bootstrap");
@@ -123,13 +143,44 @@ fn exec_command(objective: &[String]) {
     }
 
     let registry = HarnessRegistry::with_defaults();
-    let harness_name = registry.resolve(&intent).as_str().to_string();
-    let orchestrator = BrainCellOrchestrator::new(registry);
+    let harness_kind = registry.resolve(&intent);
+    let harness_name = harness_kind.as_str().to_string();
+    let harness = registry
+        .get_harness(harness_kind)
+        .expect("default harness registry should always resolve");
+    let capability_policy = harness.capability_policy();
+    let plan_policy = harness.plan_policy();
+    let review_policy = harness.review_policy();
+    let services = RuntimeServices::new(capability_policy);
+    let runtime = OrchestratorRuntime::new(registry, services)
+        .with_session_layout(session.layout().clone());
+    let orchestrator = BrainCellOrchestrator::new(HarnessRegistry::with_defaults());
     let blueprint = TuiBlueprint::claude_code_inspired();
 
     // Print bootstrap info to stderr (TUI will show this in transcript)
     eprintln!("{}", orchestrator.describe_bootstrap(&intent, &session, &blueprint));
     eprintln!("Session ID: {}", session.id());
+
+    // Update session state to Active
+    update_session_state(&session, SessionState::Active);
+
+    // Seed the runtime so the local session gets an objective and event log immediately.
+    if let Err(error) = runtime.submit(OperatorInput::Execute {
+        intent: intent.clone(),
+    }) {
+        eprintln!("Failed to submit initial turn: {}", error);
+    } else {
+        let ctx = ExecutionContext::new(
+            ObjectiveId::new(),
+            CellIdentity::new(CellType::Planner, None),
+            harness_kind,
+            plan_policy,
+            review_policy,
+        );
+        if let Err(error) = runtime.process_turn(&ctx) {
+            eprintln!("Failed to process initial turn: {}", error);
+        }
+    }
 
     // Create TUI state and run
     let mut state = TuiState::with_objective(&intent.objective());
@@ -145,46 +196,158 @@ fn exec_command(objective: &[String]) {
 fn review_command(objective_id: Option<&str>) {
     if let Some(id) = objective_id {
         println!("Reviewing objective: {}", id);
+        // Load and display objective details from session
+        if let Ok(sessions) = list_sessions() {
+            for session_dir in sessions {
+                if let Ok(meta) = load_session_meta(&session_dir) {
+                    println!("  Session: {} - {:?}", meta.id, meta.state);
+                }
+            }
+        }
     } else {
         println!("Reviewing current session...");
+        // List all sessions for review
+        match list_sessions() {
+            Ok(sessions) => {
+                if sessions.is_empty() {
+                    println!("  No sessions found.");
+                } else {
+                    println!("Available sessions:");
+                    for session_dir in sessions {
+                        if let Ok(meta) = load_session_meta(&session_dir) {
+                            println!("  [{}] {:?} - {} ({})",
+                                meta.id,
+                                meta.state,
+                                meta.profile,
+                                meta.created_at.format("%Y-%m-%d %H:%M")
+                            );
+                        }
+                    }
+                }
+            }
+            Err(e) => println!("  Error listing sessions: {}", e),
+        }
     }
-    println!("(Review functionality not yet implemented)");
 }
 
 fn resume_command(session_id: Option<&str>) {
-    if let Some(id) = session_id {
-        println!("Resuming session: {}", id);
+    let session_dir = if let Some(id) = session_id {
+        PathBuf::from(format!(".bco/sessions/{}", id))
     } else {
-        println!("Resuming most recent session...");
+        // Find most recent session
+        match find_most_recent_session() {
+            Some(dir) => dir,
+            None => {
+                println!("No sessions found to resume.");
+                return;
+            }
+        }
+    };
+
+    println!("Resuming session from: {:?}", session_dir);
+
+    // Load session
+    match load_session_meta(&session_dir) {
+        Ok(meta) => {
+            println!("  Session ID: {}", meta.id);
+            println!("  State: {:?}", meta.state);
+            println!("  Profile: {}", meta.profile);
+            println!("  Created: {}", meta.created_at);
+
+            // Update state to Active
+            if let Some(session) = bootstrap_from_existing(&meta) {
+                update_session_state(&session, SessionState::Active);
+                println!("  Session resumed successfully.");
+            }
+        }
+        Err(e) => println!("  Error loading session: {}", e),
     }
-    println!("(Resume functionality not yet implemented)");
 }
 
 fn fork_command(session_id: Option<&str>) {
-    if let Some(id) = session_id {
-        println!("Forking session: {}", id);
+    let source_dir = if let Some(id) = session_id {
+        PathBuf::from(format!(".bco/sessions/{}", id))
     } else {
-        println!("Forking current session...");
+        match find_most_recent_session() {
+            Some(dir) => dir,
+            None => {
+                println!("No sessions found to fork.");
+                return;
+            }
+        }
+    };
+
+    println!("Forking session from: {:?}", source_dir);
+
+    // Load source session
+    match load_session_meta(&source_dir) {
+        Ok(source_meta) => {
+            // Create new session with forked profile
+            let fork_profile = format!("{}-forked", source_meta.profile);
+            let new_session = SessionBootstrap::new(fork_profile);
+
+            println!("  Source: {} -> New: {}", source_meta.id, new_session.id());
+            println!("  Fork created successfully.");
+        }
+        Err(e) => println!("  Error forking session: {}", e),
     }
-    println!("(Fork functionality not yet implemented)");
 }
 
 fn providers_command(action: Option<&ProviderAction>) {
+    let mut registry = load_provider_registry();
+
     match action {
         Some(ProviderAction::List) => {
             println!("Configured providers:");
-            println!("  (No providers configured)");
+            let names = registry.list_names();
+            if names.is_empty() {
+                println!("  (No providers configured)");
+            } else {
+                for name in names {
+                    if let Some(profile) = registry.get(name) {
+                        println!("  {}: {:?} - {}",
+                            name,
+                            profile.provider,
+                            match profile.state {
+                                ConnectionState::Connected => "connected",
+                                ConnectionState::Disconnected => "disconnected",
+                                ConnectionState::Connecting => "connecting",
+                                ConnectionState::Error => "error",
+                                ConnectionState::Cooldown => "cooldown",
+                            }
+                        );
+                        if let Some(ref endpoint) = profile.endpoint {
+                            println!("    endpoint: {}", endpoint);
+                        }
+                    }
+                }
+            }
         }
         Some(ProviderAction::Add { name, endpoint }) => {
-            println!("Adding provider: {}", name);
-            if let Some(ep) = endpoint {
-                println!("  endpoint: {}", ep);
+            let profile = ConnectionProfile {
+                provider: ProviderRef::new(name.clone()),
+                endpoint: endpoint.clone(),
+                api_key: None,
+                auth_type: bco_core::AuthType::None,
+                state: ConnectionState::Disconnected,
+            };
+            registry.upsert(profile);
+            if save_provider_registry(&registry) {
+                println!("Provider '{}' added successfully.", name);
+            } else {
+                println!("Failed to save provider configuration.");
             }
-            println!("(Provider add not yet implemented)");
         }
         Some(ProviderAction::Remove { name }) => {
-            println!("Removing provider: {}", name);
-            println!("(Provider remove not yet implemented)");
+            if registry.remove(name).is_some() {
+                if save_provider_registry(&registry) {
+                    println!("Provider '{}' removed.", name);
+                } else {
+                    println!("Failed to save provider configuration.");
+                }
+            } else {
+                println!("Provider '{}' not found.", name);
+            }
         }
         None => {
             println!("Provider management");
@@ -196,20 +359,49 @@ fn providers_command(action: Option<&ProviderAction>) {
 }
 
 fn models_command(action: Option<&ModelAction>) {
+    let registry = load_provider_registry();
+
     match action {
         Some(ModelAction::List { provider }) => {
             println!("Available models:");
-            if let Some(p) = provider {
-                println!("  (Filtering by provider: {})", p);
+            let names = registry.list_names();
+            if names.is_empty() {
+                println!("  (No providers configured - add a provider first)");
+            } else {
+                for name in names {
+                    if let Some(ref p) = provider {
+                        if p != name {
+                            continue;
+                        }
+                    }
+                    if let Some(profile) = registry.get(name) {
+                        println!("  {} (endpoint: {:?})",
+                            profile.provider,
+                            profile.endpoint
+                        );
+                    }
+                }
             }
-            println!("  (No models available)");
+            println!("\nNote: Full model listing requires provider API.");
         }
         Some(ModelAction::Current) => {
-            println!("Current model: none selected");
+            match load_current_model() {
+                Ok(model) => println!("Current model: {}", model),
+                Err(_) => println!("Current model: none selected"),
+            }
         }
         Some(ModelAction::Switch { model }) => {
-            println!("Switching to model: {}", model);
-            println!("(Model switch not yet implemented)");
+            // Parse and validate model
+            match ModelRef::parse(model) {
+                Ok(model_ref) => {
+                    if save_current_model(&model_ref.to_string()) {
+                        println!("Switched to model: {}", model_ref);
+                    } else {
+                        println!("Failed to save model configuration.");
+                    }
+                }
+                Err(e) => println!("Invalid model format: {}. Expected provider/model (e.g., anthropic/claude-sonnet-4-6)", e),
+            }
         }
         None => {
             println!("Model management");
@@ -217,5 +409,170 @@ fn models_command(action: Option<&ModelAction>) {
             println!("  Use 'bco models current' to show current model");
             println!("  Use 'bco models switch <provider/model>' to switch model");
         }
+    }
+}
+
+// =============================================================================
+// Helper functions
+// =============================================================================
+
+fn get_session_base_path() -> PathBuf {
+    std::env::current_dir().unwrap_or_default()
+}
+
+fn infer_domain(objective: &str) -> IntentDomain {
+    let lower = objective.to_lowercase();
+
+    if lower.contains("ctf")
+        || lower.contains("pwn")
+        || lower.contains("reversing")
+        || lower.contains("forensics")
+        || lower.contains("web challenge")
+        || lower.contains("crypto challenge")
+        || lower.contains("flag")
+    {
+        return IntentDomain::Ctf;
+    }
+
+    if lower.contains("pentest")
+        || lower.contains("penetration test")
+        || lower.contains("red team")
+        || lower.contains("exploit chain")
+        || lower.contains("target scope")
+    {
+        return IntentDomain::Pentesting;
+    }
+
+    if lower.contains("rust")
+        || lower.contains("refactor")
+        || lower.contains("bug")
+        || lower.contains("test")
+        || lower.contains("code")
+        || lower.contains("implement")
+    {
+        return IntentDomain::Coding;
+    }
+
+    IntentDomain::GeneralEngineering
+}
+
+fn list_sessions() -> Result<Vec<PathBuf>, std::io::Error> {
+    let sessions_dir = get_session_base_path().join(".bco/sessions");
+    if !sessions_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut sessions = Vec::new();
+    for entry in fs::read_dir(sessions_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            sessions.push(path);
+        }
+    }
+
+    // Sort by modification time (most recent first)
+    sessions.sort_by(|a, b| {
+        let a_time = a.metadata().and_then(|m| m.modified()).ok();
+        let b_time = b.metadata().and_then(|m| m.modified()).ok();
+        b_time.cmp(&a_time)
+    });
+
+    Ok(sessions)
+}
+
+fn find_most_recent_session() -> Option<PathBuf> {
+    list_sessions().ok()?.into_iter().next()
+}
+
+fn load_session_meta(session_dir: &PathBuf) -> Result<SessionMeta, String> {
+    let session_json_path = session_dir.join("session.json");
+    let content = fs::read_to_string(&session_json_path)
+        .map_err(|e| format!("Failed to read session.json: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse session.json: {}", e))
+}
+
+fn bootstrap_from_existing(meta: &SessionMeta) -> Option<SessionBootstrap> {
+    Some(SessionBootstrap::with_id(meta.id, meta.profile.clone()))
+}
+
+fn update_session_state(session: &SessionBootstrap, state: SessionState) {
+    let existing_created_at = fs::read_to_string(session.layout().session_json())
+        .ok()
+        .and_then(|content| serde_json::from_str::<SessionMeta>(&content).ok())
+        .map(|meta| meta.created_at)
+        .unwrap_or_else(chrono::Utc::now);
+
+    let meta = SessionMeta {
+        id: session.id(),
+        created_at: existing_created_at,
+        profile: session.profile().to_string(),
+        state,
+    };
+
+    if let Ok(json) = serde_json::to_string_pretty(&meta) {
+        let path = session.layout().session_json();
+        let _ = fs::write(path, json);
+    }
+}
+
+fn load_provider_registry() -> ProviderRegistry {
+    let config_path = get_session_base_path().join(PROVIDER_CONFIG_PATH);
+    if let Ok(content) = fs::read_to_string(&config_path) {
+        if let Ok(registry) = serde_json::from_str(&content) {
+            return registry;
+        }
+    }
+    ProviderRegistry::new()
+}
+
+fn save_provider_registry(registry: &ProviderRegistry) -> bool {
+    let config_path = get_session_base_path().join(PROVIDER_CONFIG_PATH);
+
+    // Ensure .bco directory exists
+    if let Some(parent) = config_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    if let Ok(json) = serde_json::to_string_pretty(registry) {
+        fs::write(&config_path, json).is_ok()
+    } else {
+        false
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ModelState {
+    current_model: Option<String>,
+    last_updated: chrono::DateTime<chrono::Utc>,
+}
+
+fn load_current_model() -> Result<String, String> {
+    let config_path = get_session_base_path().join(MODEL_CONFIG_PATH);
+    let content = fs::read_to_string(&config_path)
+        .map_err(|_| "No model selected".to_string())?;
+    let state: ModelState = serde_json::from_str(&content)
+        .map_err(|_| "Invalid model state".to_string())?;
+    state.current_model.ok_or_else(|| "No model selected".to_string())
+}
+
+fn save_current_model(model: &str) -> bool {
+    let config_path = get_session_base_path().join(MODEL_CONFIG_PATH);
+
+    // Ensure .bco directory exists
+    if let Some(parent) = config_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+
+    let state = ModelState {
+        current_model: Some(model.to_string()),
+        last_updated: chrono::Utc::now(),
+    };
+
+    if let Ok(json) = serde_json::to_string_pretty(&state) {
+        fs::write(&config_path, json).is_ok()
+    } else {
+        false
     }
 }

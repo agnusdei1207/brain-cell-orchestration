@@ -1,6 +1,3 @@
+.bco/
+.claude/
 target/
-.DS_Store
-dist/
-.idea/
-.vscode/
-

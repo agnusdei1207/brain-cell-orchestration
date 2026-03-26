@@ -276,7 +276,7 @@ impl TaskIntent {
 // =============================================================================
 
 /// Provider registry for managing provider connections
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct ProviderRegistry {
     providers: std::collections::HashMap<String, ConnectionProfile>,
 }

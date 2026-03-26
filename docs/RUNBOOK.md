@@ -71,18 +71,18 @@ Verification note:
 - [x] current Kali-based Docker build still compiles
 - [x] `session_runtime.json`, `orchestrator_events.jsonl`, `cell_topology.jsonl`, and related layout paths exist in `bco-session`
 - [x] `MessageBus`, `SubmissionQueue`, `EventQueue`, and `SessionActorQueue` types exist
-- [x] auth profile and model switch related types exist in `bco-core`
+- [x] provider/model switching types exist in `bco-core`
 - [x] CTF harness contains challenge-type and artifact expectation helpers
 
 ### Confirmed missing or incomplete now
 
 - [ ] real inter-cell message flow is still partial: `MessageBus` exists, but cell execution is not actually driven by queued messages end-to-end
-- [ ] `SubmissionQueue` currently behaves like a stack (`Vec::push` + `pop`) rather than a FIFO queue
-- [ ] `SessionActorQueue` is not truly per-session isolated yet; it uses one shared state gate and `submit()` creates a fresh session id each call
-- [ ] event queue exists in memory, but append-only event persistence is not wired into runtime flow
-- [ ] session writeback files exist, but runtime append/writeback usage is not fully wired beyond bootstrap creation
+- [x] `SubmissionQueue` now behaves as FIFO and stores session-aware envelopes
+- [x] `SessionActorQueue` now tracks per-session state and `submit()` uses the active local session id
+- [x] append-only orchestration event persistence is wired into runtime flow
+- [x] session runtime writeback and pending-work snapshot persistence are wired into runtime flow
 - [ ] reason-aware failover is not verified as integrated runtime behavior
-- [ ] auth profile rotation and cooldown types exist, but runtime integration is not yet verified
+- [x] auth rotation is intentionally out of scope for the current local-first build
 - [ ] hook-driven automation and memory flushes need end-to-end verification, not just type presence
 - [ ] subtree shutdown and lineage persistence need stronger implementation verification, not just type or helper presence
 - [ ] CTF harness has useful helper methods, but it is still not competition-ready as a full execution harness
@@ -116,7 +116,7 @@ This section is the explicit audit for what to copy and what not to copy from re
 - [x] durable memory flush concepts in the plan
 - [x] per-session serialization requirement in the plan
 - [x] reason-aware failover requirement in the plan
-- [x] auth profile state and cooldown requirement in the plan
+- [x] local-first autonomy without auth as the current scope boundary
 - [x] session metadata writeback requirement in the plan
 - [ ] all of the above must also be verified in implementation, not just docs
 
@@ -411,8 +411,8 @@ Tasks:
 - [ ] implement local configuration store for provider connections
 - [ ] support remote provider descriptors
 - [ ] support local endpoint descriptors
-- [ ] define auth loading boundary
-- [ ] define auth profile state and cooldown model
+- [x] no auth loading boundary in current scope
+- [x] no auth profile rotation or cooldown model in current scope
 
 Definition of done:
 
@@ -465,7 +465,7 @@ Definition of done:
 Verify:
 
 - [ ] tests cover valid switch, invalid switch, and fallback selection
-- [ ] tests cover rate-limit vs auth vs model-not-found behavior
+- [ ] tests cover rate-limit vs provider-error vs model-not-found behavior
 
 ## Phase D: Orchestration Runtime
 

@@ -1,5 +1,5 @@
 use bco_core::{
-    ObjectiveId, Objective, ObjectiveState, RiskProfile, TaskIntent, ProgressStatus,
+    ObjectiveId, Objective, RiskProfile, TaskIntent, ProgressStatus,
     ActiveModelState, ModelRef, ModelSwitchReason, ModelSwitchEvent,
     ModelFallbackPolicy,
 };
@@ -12,7 +12,6 @@ use serde::Serialize;
 use std::io::Write;
 use std::sync::RwLock;
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 // =============================================================================
 // A4: Operation and Control-Plane Contract
@@ -1443,9 +1442,15 @@ pub enum DeliveryMode {
 }
 
 /// Submission queue type (operator input -> orchestrator)
+#[derive(Debug, Clone)]
+pub struct SubmittedInput {
+    pub session_id: bco_session::SessionId,
+    pub input: OperatorInput,
+}
+
 #[derive(Debug)]
 pub struct SubmissionQueue {
-    messages: std::collections::VecDeque<OperatorInput>,
+    messages: std::collections::VecDeque<SubmittedInput>,
 }
 
 impl SubmissionQueue {
@@ -1455,11 +1460,11 @@ impl SubmissionQueue {
         }
     }
 
-    pub fn enqueue(&mut self, input: OperatorInput) {
-        self.messages.push_back(input);
+    pub fn enqueue(&mut self, session_id: bco_session::SessionId, input: OperatorInput) {
+        self.messages.push_back(SubmittedInput { session_id, input });
     }
 
-    pub fn dequeue(&mut self) -> Option<OperatorInput> {
+    pub fn dequeue(&mut self) -> Option<SubmittedInput> {
         self.messages.pop_front()
     }
 
@@ -1802,19 +1807,38 @@ impl Default for SessionActorQueue {
 use std::sync::Arc;
 
 /// Event log wrapper that implements the timestamp trait for persistence
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct EventLogEntry {
     timestamp: chrono::DateTime<chrono::Utc>,
     event: OrchestrationEvent,
 }
 
-impl serde::Serialize for EventLogEntry {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.event.serialize(serializer)
-    }
+#[derive(Debug, Clone, Serialize)]
+struct CellTopologyEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    cell: String,
+    parent: Option<String>,
+    cell_type: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelEventEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    from: String,
+    to: String,
+    reason: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PendingWorkLogEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    id: Uuid,
+    objective_id: ObjectiveId,
+    action: String,
+    retry_count: u8,
+    max_retries: u8,
+    last_error: Option<String>,
+    retry_class: &'static str,
 }
 
 /// Orchestrator runtime - wired execution loop
@@ -1825,6 +1849,7 @@ pub struct OrchestratorRuntime {
     message_bus: Arc<MessageBus>,
     submission_queue: Arc<std::sync::RwLock<SubmissionQueue>>,
     session_queue: Arc<SessionActorQueue>,
+    autonomy_scheduler: Arc<AutonomyScheduler>,
     services: RuntimeServices,
     /// Optional session layout for event persistence
     session_layout: Option<SessionLayout>,
@@ -1838,6 +1863,7 @@ impl OrchestratorRuntime {
             message_bus: Arc::new(MessageBus::new()),
             submission_queue: Arc::new(std::sync::RwLock::new(SubmissionQueue::new())),
             session_queue: Arc::new(SessionActorQueue::new()),
+            autonomy_scheduler: Arc::new(AutonomyScheduler::new()),
             services,
             session_layout: None,
         }
@@ -1864,69 +1890,179 @@ impl OrchestratorRuntime {
             return Ok(());
         }
 
-        let path = layout.orchestrator_events_jsonl();
+        let event_path = layout.orchestrator_events_jsonl();
+        let topology_path = layout.cell_topology_jsonl();
+        let model_path = layout.model_events_jsonl();
         let file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&path)?;
+            .open(&event_path)?;
+        let topology_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&topology_path)?;
+        let model_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&model_path)?;
 
         let mut file = std::io::BufWriter::new(file);
+        let mut topology_file = std::io::BufWriter::new(topology_file);
+        let mut model_file = std::io::BufWriter::new(model_file);
         for event in events {
+            let now = chrono::Utc::now();
             let entry = EventLogEntry {
-                timestamp: chrono::Utc::now(),
-                event,
+                timestamp: now,
+                event: event.clone(),
             };
             let json = serde_json::to_string(&entry)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
             writeln!(file, "{}", json)?;
+            match event {
+                OrchestrationEvent::CellSpawned { cell, parent, cell_type } => {
+                    let topology = CellTopologyEntry {
+                        timestamp: now,
+                        cell: cell.to_string(),
+                        parent: parent.map(|id| id.to_string()),
+                        cell_type,
+                    };
+                    let json = serde_json::to_string(&topology)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    writeln!(topology_file, "{}", json)?;
+                }
+                OrchestrationEvent::ModelSwitch { from, to, reason } => {
+                    let model_entry = ModelEventEntry {
+                        timestamp: now,
+                        from,
+                        to,
+                        reason,
+                    };
+                    let json = serde_json::to_string(&model_entry)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    writeln!(model_file, "{}", json)?;
+                }
+                _ => {}
+            }
         }
         file.flush()?;
+        topology_file.flush()?;
+        model_file.flush()?;
+        Ok(())
+    }
+
+    /// Persist runtime state to session_runtime.json
+    pub fn flush_runtime_state(&self) -> std::io::Result<()> {
+        let Some(layout) = &self.session_layout else {
+            return Ok(()); // No layout configured, skip persistence
+        };
+
+        // Capture current runtime state
+        let writeback = RuntimeWriteback::capture_from(&self.services);
+        let runtime = writeback.to_session_runtime(layout.id());
+
+        let path = layout.session_runtime_json();
+        let json = serde_json::to_string_pretty(&runtime)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        std::fs::write(&path, json)?;
+
+        Ok(())
+    }
+
+    pub fn flush_pending_work(&self) -> std::io::Result<()> {
+        let Some(layout) = &self.session_layout else {
+            return Ok(());
+        };
+
+        let pending = self.autonomy_scheduler.get_pending_work();
+        let lines = pending
+            .into_iter()
+            .map(|work| {
+                let entry = PendingWorkLogEntry {
+                    timestamp: chrono::Utc::now(),
+                    id: work.id,
+                    objective_id: work.objective_id,
+                    action: work.action,
+                    retry_count: work.retry_count,
+                    max_retries: work.max_retries,
+                    last_error: work.last_error,
+                    retry_class: match work.retry_class {
+                        RetryClass::Transient => "transient",
+                        RetryClass::RateLimit => "rate-limit",
+                        RetryClass::AuthFailure => "auth-failure",
+                        RetryClass::Permanent => "permanent",
+                    },
+                };
+                serde_json::to_string(&entry)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let content = if lines.is_empty() {
+            String::new()
+        } else {
+            format!("{}\n", lines.join("\n"))
+        };
+        std::fs::write(layout.pending_work_jsonl(), content)?;
         Ok(())
     }
 
     /// Submit operator input to the orchestrator
     pub fn submit(&self, input: OperatorInput) -> Result<(), RuntimeError> {
-        // Serialize session operations through actor queue
-        let session_id = bco_session::SessionId::new(); // Would extract from context
-        if !self.session_queue.enqueue(session_id) {
-            return Err(RuntimeError::SessionBusy { session_id });
-        }
+        let session_id = self
+            .session_layout
+            .as_ref()
+            .map(|layout| layout.id())
+            .unwrap_or_default();
 
-        // Add to submission queue
+        self.session_queue.enqueue(session_id);
+
         {
             let mut queue = self.submission_queue.write().unwrap();
-            queue.enqueue(input);
+            queue.enqueue(session_id, input);
         }
-
-        self.session_queue.dequeue(session_id);
         Ok(())
     }
 
     /// Process one turn - main runtime loop step
     pub fn process_turn(&self, ctx: &ExecutionContext) -> Result<TurnResult, RuntimeError> {
-        // Process submission queue
-        let input = {
+        let submitted = {
             let mut queue = self.submission_queue.write().unwrap();
             queue.dequeue()
         };
 
-        // Process input and emit events under write lock
-        {
+        let Some(submitted) = submitted else {
+            return Ok(TurnResult::WaitingForInput);
+        };
+
+        let result = {
             let mut orch = self.orchestrator.write().unwrap();
+            self.handle_operator_input(&mut orch, submitted.input)?;
+            let objective_id = self
+                .blackboard
+                .get_objective()
+                .map(|objective| objective.id)
+                .unwrap_or(ctx.objective_id);
 
-            if let Some(input) = input {
-                self.handle_operator_input(&mut orch, input)?;
-            }
-
-            // Emit turn submitted event
             orch.emit_event(OrchestrationEvent::TurnSubmitted {
-                objective_id: ctx.objective_id,
+                objective_id,
             });
-        } // Lock released here
+            Ok::<(), RuntimeError>(())
+        };
 
-        // Persist events after releasing lock
+        self.session_queue.dequeue(submitted.session_id);
+        result?;
+
         if let Err(e) = self.flush_events() {
             eprintln!("Warning: failed to persist events: {}", e);
+        }
+
+        // Persist runtime state
+        if let Err(e) = self.flush_runtime_state() {
+            eprintln!("Warning: failed to persist runtime state: {}", e);
+        }
+
+        if let Err(e) = self.flush_pending_work() {
+            eprintln!("Warning: failed to persist pending work: {}", e);
         }
 
         Ok(TurnResult::Processed)
@@ -1935,8 +2071,9 @@ impl OrchestratorRuntime {
     fn handle_operator_input(&self, orch: &mut BrainCellOrchestrator, input: OperatorInput) -> Result<(), RuntimeError> {
         match input {
             OperatorInput::Execute { intent } => {
-                // Create objective and emit event
-                let objective_id = ObjectiveId::new();
+                let objective = Objective::new(intent, RiskProfile::Moderate);
+                let objective_id = objective.id;
+                self.blackboard.set_objective(objective);
                 orch.emit_event(OrchestrationEvent::ObjectiveCreated { id: objective_id });
             }
             OperatorInput::Interrupt => {
@@ -2018,6 +2155,10 @@ impl OrchestratorRuntime {
     pub fn drain_events(&self) -> Vec<OrchestrationEvent> {
         let mut orch = self.orchestrator.write().unwrap();
         orch.event_queue.drain()
+    }
+
+    pub fn schedule_pending_work(&self, work: PendingWork) {
+        self.autonomy_scheduler.add_pending_work(work);
     }
 }
 

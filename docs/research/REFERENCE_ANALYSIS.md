@@ -109,7 +109,7 @@ Binary-level note:
 - Clear bias toward operator-controlled power rather than hidden autonomy.
 - ACP control plane exists as a distinct runtime management layer.
 - Per-session actor queue serialization prevents the same session from racing itself.
-- Auth profile rotation and cooldown logic are treated as first-class runtime behavior.
+- Failure handling is explicitly reason-aware rather than hidden behind a generic retry loop.
 - Failover policy is reason-aware rather than a single generic retry path.
 - Session store writeback captures runtime model, usage, compaction, and abort state.
 - Hook system turns automation into an explicit evented extension point.
@@ -124,7 +124,7 @@ Binary-level note:
 - Safe defaults with visible high-power overrides.
 - Per-session serialized actor queue for mutating operations.
 - Reason-aware failover and retry categorization.
-- Runtime auth profile state with cooldowns and recovery.
+- Local-first runtime state with durable recovery and no server dependency.
 - Evented hooks for automation and memory flushes.
 - Session-store writeback after runs.
 
@@ -219,7 +219,7 @@ At any point, the runtime should be able to show:
 ### Rule 2: Harness and model are separate decisions
 
 - Harness decides domain behavior and safety posture.
-- Model layer decides backend selection, credentials, and failover.
+- Model layer decides backend selection, local configuration, and failover.
 
 ### Rule 3: Autonomy never bypasses policy
 
@@ -240,7 +240,7 @@ At any point, the runtime should be able to show:
 
 ### Rule 7: Retry logic must be reason-aware
 
-- Rate limits, overload, auth failure, permanent config errors, and model-not-found should not all behave the same.
+- Rate limits, overload, provider failure, permanent config errors, and model-not-found should not all behave the same.
 
 ### Rule 8: Post-run state must write back to session metadata
 

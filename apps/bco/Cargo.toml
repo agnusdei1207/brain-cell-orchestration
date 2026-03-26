@@ -13,6 +13,9 @@ bco-orchestrator = { path = "../../crates/bco-orchestrator" }
 bco-session = { path = "../../crates/bco-session" }
 bco-tui = { path = "../../crates/bco-tui" }
 clap = { version = "4", features = ["derive"] }
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

@@ -249,11 +249,9 @@ Recommended data types:
 - `ActiveModelState`
 - `ModelSwitchEvent`
 - `FailoverReason`
-- `AuthProfileState`
 
 The model layer should also maintain:
 
-- auth profile eligibility and cooldown state
 - reason-aware fallback policy
 - provider health or connection status snapshots
 
@@ -361,8 +359,8 @@ Retry behavior should be reason-aware:
 
 - rate limit
 - overload
-- auth temporary failure
-- auth permanent failure
+- provider temporary failure
+- provider permanent failure
 - model not found
 - invalid format or config
 

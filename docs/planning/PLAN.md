@@ -82,7 +82,6 @@ Session storage insight:
 - memory flush and durable local state patterns
 - wakeup, retry, pending-work, and automation primitives
 - per-session actor queue serialization
-- auth profile rotation and cooldown handling
 - reason-aware failover policy
 - hook-driven automation and session memory writeback
 - post-run session metadata writeback
@@ -91,7 +90,7 @@ Session storage insight:
 
 - provider-agnostic model abstraction
 - easy runtime provider and model switching
-- lightweight connection UX for attaching credentials or local endpoints
+- lightweight connection UX for attaching local endpoints or direct provider configuration
 - stable `provider/model` identity format
 
 ### Claude Code TUI cues to emulate
@@ -180,7 +179,7 @@ The runtime should be composed from eight layers:
 4. `execution layer`
    Attach tool runners, container/runtime adapters, and provider/model backends.
 5. `model connectivity layer`
-   Resolve providers, credentials, endpoints, active model, and failover preferences.
+   Resolve providers, local configuration, endpoints, active model, and failover preferences.
 6. `autonomy layer`
    Manage retries, wakeups, scheduled work, and dormant pending-work drains.
 7. `persistence layer`
@@ -265,7 +264,6 @@ Required capabilities:
 - live provider setup through a slash command such as `/connect openai`
 - support for remote providers and local model endpoints
 - model fallback policy without coupling the full runtime to one vendor
-- auth profile rotation and cooldown tracking
 - reason-aware failover behavior
 
 Operator UX goals:
@@ -408,7 +406,7 @@ Implementation rule:
 - crash recovery coverage
 - model failover and reconnect coverage
 - spawn-depth and runaway-lane guardrail coverage
-- auth profile cooldown and recovery coverage
+- provider reconnect and failure-class coverage
 
 ## 17. Engineering Standards
 
