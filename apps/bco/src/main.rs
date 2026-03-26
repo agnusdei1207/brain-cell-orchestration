@@ -8,7 +8,7 @@ use bco_orchestrator::{
     BrainCellOrchestrator, OrchestratorRuntime, RuntimeServices, OperatorInput,
     ExecutionContext, CellIdentity, CellType,
 };
-use bco_session::{SessionBootstrap, SessionMeta, SessionState};
+use bco_session::{SessionBootstrap, SessionMeta, SessionState, SessionRuntime};
 use bco_tui::{TuiBlueprint, TuiState, ConnectionHealth};
 use serde::{Serialize, Deserialize};
 use std::path::PathBuf;
@@ -196,17 +196,13 @@ fn exec_command(objective: &[String]) {
 fn review_command(objective_id: Option<&str>) {
     if let Some(id) = objective_id {
         println!("Reviewing objective: {}", id);
-        // Load and display objective details from session
-        if let Ok(sessions) = list_sessions() {
-            for session_dir in sessions {
-                if let Ok(meta) = load_session_meta(&session_dir) {
-                    println!("  Session: {} - {:?}", meta.id, meta.state);
-                }
-            }
+        let session_dir = PathBuf::from(format!(".bco/sessions/{}", id));
+        match load_session_snapshot(&session_dir) {
+            Ok(snapshot) => print_session_snapshot(&snapshot),
+            Err(error) => println!("  Error loading session review: {}", error),
         }
     } else {
         println!("Reviewing current session...");
-        // List all sessions for review
         match list_sessions() {
             Ok(sessions) => {
                 if sessions.is_empty() {
@@ -214,13 +210,20 @@ fn review_command(objective_id: Option<&str>) {
                 } else {
                     println!("Available sessions:");
                     for session_dir in sessions {
-                        if let Ok(meta) = load_session_meta(&session_dir) {
-                            println!("  [{}] {:?} - {} ({})",
-                                meta.id,
-                                meta.state,
-                                meta.profile,
-                                meta.created_at.format("%Y-%m-%d %H:%M")
+                        if let Ok(snapshot) = load_session_snapshot(&session_dir) {
+                            println!(
+                                "  [{}] {:?} - {} ({})",
+                                snapshot.meta.id,
+                                snapshot.meta.state,
+                                snapshot.meta.profile,
+                                snapshot.meta.created_at.format("%Y-%m-%d %H:%M")
                             );
+                            if let Some(ref next_action) = snapshot.next_action {
+                                println!("    next: {}", next_action);
+                            }
+                            if let Some(ref model) = snapshot.runtime.active_model {
+                                println!("    model: {}", model);
+                            }
                         }
                     }
                 }
@@ -246,18 +249,22 @@ fn resume_command(session_id: Option<&str>) {
 
     println!("Resuming session from: {:?}", session_dir);
 
-    // Load session
-    match load_session_meta(&session_dir) {
-        Ok(meta) => {
-            println!("  Session ID: {}", meta.id);
-            println!("  State: {:?}", meta.state);
-            println!("  Profile: {}", meta.profile);
-            println!("  Created: {}", meta.created_at);
+    match load_session_snapshot(&session_dir) {
+        Ok(snapshot) => {
+            println!("  Session ID: {}", snapshot.meta.id);
+            println!("  State: {:?}", snapshot.meta.state);
+            println!("  Profile: {}", snapshot.meta.profile);
+            println!("  Created: {}", snapshot.meta.created_at);
 
-            // Update state to Active
-            if let Some(session) = bootstrap_from_existing(&meta) {
+            if let Some(session) = bootstrap_from_existing(&snapshot.meta) {
                 update_session_state(&session, SessionState::Active);
                 println!("  Session resumed successfully.");
+
+                let mut state = snapshot.into_tui_state();
+                state.status.resumed = true;
+                if let Err(error) = bco_tui::run_tui(state) {
+                    eprintln!("TUI error: {}", error);
+                }
             }
         }
         Err(e) => println!("  Error loading session: {}", e),
@@ -279,14 +286,34 @@ fn fork_command(session_id: Option<&str>) {
 
     println!("Forking session from: {:?}", source_dir);
 
-    // Load source session
-    match load_session_meta(&source_dir) {
-        Ok(source_meta) => {
-            // Create new session with forked profile
-            let fork_profile = format!("{}-forked", source_meta.profile);
+    match load_session_snapshot(&source_dir) {
+        Ok(source) => {
+            let fork_profile = format!("{}-forked", source.meta.profile);
             let new_session = SessionBootstrap::new(fork_profile);
+            if let Err(error) = new_session.bootstrap() {
+                println!("  Error bootstrapping fork: {}", error);
+                return;
+            }
 
-            println!("  Source: {} -> New: {}", source_meta.id, new_session.id());
+            if let Err(error) = copy_session_artifacts(&source_dir, &new_session.layout().session_dir()) {
+                println!("  Error copying session artifacts: {}", error);
+                return;
+            }
+
+            let forked_runtime = SessionRuntime {
+                session_id: new_session.id(),
+                active_model: source.runtime.active_model.clone(),
+                token_usage: source.runtime.token_usage,
+                abort_count: source.runtime.abort_count,
+                compaction_count: source.runtime.compaction_count,
+                last_updated: chrono::Utc::now(),
+            };
+            if let Ok(json) = serde_json::to_string_pretty(&forked_runtime) {
+                let _ = fs::write(new_session.layout().session_runtime_json(), json);
+            }
+
+            update_session_state(&new_session, SessionState::Active);
+            println!("  Source: {} -> New: {}", source.meta.id, new_session.id());
             println!("  Fork created successfully.");
         }
         Err(e) => println!("  Error forking session: {}", e),
@@ -490,8 +517,146 @@ fn load_session_meta(session_dir: &PathBuf) -> Result<SessionMeta, String> {
         .map_err(|e| format!("Failed to parse session.json: {}", e))
 }
 
+fn load_session_runtime(session_dir: &PathBuf) -> Result<SessionRuntime, String> {
+    let runtime_json_path = session_dir.join("session_runtime.json");
+    let content = fs::read_to_string(&runtime_json_path)
+        .map_err(|e| format!("Failed to read session_runtime.json: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse session_runtime.json: {}", e))
+}
+
 fn bootstrap_from_existing(meta: &SessionMeta) -> Option<SessionBootstrap> {
     Some(SessionBootstrap::with_id(meta.id, meta.profile.clone()))
+}
+
+#[derive(Debug, Clone)]
+struct SessionSnapshot {
+    meta: SessionMeta,
+    runtime: SessionRuntime,
+    plan_steps: Vec<String>,
+    transcript: Vec<String>,
+    next_action: Option<String>,
+}
+
+impl SessionSnapshot {
+    fn into_tui_state(self) -> TuiState {
+        let mut state = TuiState::with_objective(
+            self.meta.profile.as_str()
+        );
+        state.status.objective = Some(self.meta.profile.clone());
+        state.current_plan = self.plan_steps.clone();
+        state.transcript.extend(self.transcript);
+        state.status.model = self.runtime.active_model.clone();
+        if let Some(ref model) = self.runtime.active_model {
+            if let Ok(model_ref) = ModelRef::parse(model) {
+                state.status.provider = Some(model_ref.provider().as_str().to_string());
+            }
+        }
+        if let Some(next_action) = self.next_action {
+            state.status.subgoal = Some(next_action);
+        }
+        state
+    }
+}
+
+fn load_session_snapshot(session_dir: &PathBuf) -> Result<SessionSnapshot, String> {
+    let meta = load_session_meta(session_dir)?;
+    let runtime = load_session_runtime(session_dir)?;
+    let (plan_steps, transcript, next_action) = parse_orchestrator_events(session_dir)?;
+
+    Ok(SessionSnapshot {
+        meta,
+        runtime,
+        plan_steps,
+        transcript,
+        next_action,
+    })
+}
+
+fn parse_orchestrator_events(session_dir: &PathBuf) -> Result<(Vec<String>, Vec<String>, Option<String>), String> {
+    let path = session_dir.join("orchestrator_events.jsonl");
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read orchestrator events: {}", e))?;
+
+    let mut plan_steps = Vec::new();
+    let mut transcript = Vec::new();
+    let mut next_action = None;
+
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let value: serde_json::Value = serde_json::from_str(line)
+            .map_err(|e| format!("Failed to parse orchestrator event line: {}", e))?;
+
+        if let Some(event) = value.get("event") {
+            if let Some(plan) = event.get("ObjectivePlanReady") {
+                if let Some(steps) = plan.get("steps").and_then(|steps| steps.as_array()) {
+                    for (index, step) in steps.iter().filter_map(|step| step.as_str()).enumerate() {
+                        let rendered = if index == 0 {
+                            format!("[active] {}", step)
+                        } else {
+                            format!("[pending] {}", step)
+                        };
+                        if next_action.is_none() {
+                            next_action = Some(step.to_string());
+                        }
+                        plan_steps.push(rendered);
+                    }
+                }
+            }
+
+            if let Some(cell) = event.get("CellSpawned").and_then(|cell| cell.get("cell_type")).and_then(|cell| cell.as_str()) {
+                transcript.push(format!("[cell] spawned {}", cell));
+            } else if event.get("InteractionBegin").is_some() {
+                transcript.push("[coord] delegated work to executor".to_string());
+            } else if event.get("TurnCompleted").is_some() {
+                transcript.push("[turn] completed".to_string());
+            } else if event.get("TurnSubmitted").is_some() {
+                transcript.push("[turn] submitted".to_string());
+            }
+        }
+    }
+
+    Ok((plan_steps, transcript, next_action))
+}
+
+fn print_session_snapshot(snapshot: &SessionSnapshot) {
+    println!("  Session: {}", snapshot.meta.id);
+    println!("  State: {:?}", snapshot.meta.state);
+    println!("  Profile: {}", snapshot.meta.profile);
+    if let Some(ref model) = snapshot.runtime.active_model {
+        println!("  Active model: {}", model);
+    }
+    if let Some(ref next_action) = snapshot.next_action {
+        println!("  Next action: {}", next_action);
+    }
+    if !snapshot.plan_steps.is_empty() {
+        println!("  Plan:");
+        for step in &snapshot.plan_steps {
+            println!("    {}", step);
+        }
+    }
+}
+
+fn copy_session_artifacts(source_dir: &PathBuf, target_dir: &PathBuf) -> Result<(), String> {
+    for entry in fs::read_dir(source_dir).map_err(|e| format!("Failed to read source session dir: {}", e))? {
+        let entry = entry.map_err(|e| format!("Failed to read source session entry: {}", e))?;
+        let source_path = entry.path();
+        let target_path = target_dir.join(entry.file_name());
+
+        if source_path.is_dir() {
+            fs::create_dir_all(&target_path)
+                .map_err(|e| format!("Failed to create target dir: {}", e))?;
+            copy_session_artifacts(&source_path, &target_path)?;
+        } else if source_path.file_name().and_then(|name| name.to_str()) != Some("session.json") {
+            fs::copy(&source_path, &target_path)
+                .map_err(|e| format!("Failed to copy session artifact: {}", e))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn update_session_state(session: &SessionBootstrap, state: SessionState) {
