@@ -174,6 +174,7 @@ Current implementation note:
 - approval-gated offensive objectives already rehydrate as waiting sessions on `bco resume`
 - local operators can now resolve approval state with `bco approve` and `bco deny`
 - approved sessions already advance their persisted plan snapshot to the next step without any server-side session state
+- local approval resolution also writes turn-progression transcript/event artifacts so operators can audit what changed
 - the next priority is not inventing more persistence types, but connecting those persisted states to richer autonomous execution
 
 ## 8. Proposed Runtime Model

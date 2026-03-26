@@ -435,12 +435,42 @@ fn approval_command(
                     );
                     let _ = append_plan_snapshot(&session_dir, &plan.objective_id, &plan.steps, next_index);
                     if next_index >= plan.steps.len() {
+                        let completion_event = serde_json::json!({
+                            "timestamp": now,
+                            "event": {
+                                "ObjectiveCompleted": {
+                                    "id": plan.objective_id
+                                }
+                            }
+                        });
+                        let _ = append_jsonl_line(&session_dir.join("orchestrator_events.jsonl"), &completion_event);
+                        let completion_transcript = serde_json::json!({
+                            "timestamp": now,
+                            "line": "[objective] completed".to_string(),
+                        });
+                        let _ = append_jsonl_line(&session_dir.join("transcript.jsonl"), &completion_transcript);
                         let _ = update_session_state_in_dir(
                             &session_dir,
                             &snapshot.meta,
                             SessionState::Completed,
                         );
                     } else {
+                        let next_step = plan.steps.get(next_index).cloned().unwrap_or_default();
+                        let progress_event = serde_json::json!({
+                            "timestamp": now,
+                            "event": {
+                                "ObjectiveProgress": {
+                                    "id": plan.objective_id,
+                                    "status": "InProgress"
+                                }
+                            }
+                        });
+                        let _ = append_jsonl_line(&session_dir.join("orchestrator_events.jsonl"), &progress_event);
+                        let progress_transcript = serde_json::json!({
+                            "timestamp": now,
+                            "line": format!("[turn] advanced to {}", next_step),
+                        });
+                        let _ = append_jsonl_line(&session_dir.join("transcript.jsonl"), &progress_transcript);
                         let _ = update_session_state_in_dir(
                             &session_dir,
                             &snapshot.meta,
@@ -449,6 +479,14 @@ fn approval_command(
                     }
                 }
             } else {
+                let paused_transcript = serde_json::json!({
+                    "timestamp": now,
+                    "line": format!(
+                        "[turn] paused after denial {}",
+                        reason.clone().unwrap_or_else(|| "operator denied".to_string())
+                    ),
+                });
+                let _ = append_jsonl_line(&session_dir.join("transcript.jsonl"), &paused_transcript);
                 let _ = update_session_state_in_dir(&session_dir, &snapshot.meta, SessionState::Paused);
             }
 
