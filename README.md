@@ -34,6 +34,8 @@ The primary operator target is not web-only CTF. It is a terminal-native TUI sys
 
 ## Workspace Layout
 
+This is an intentional Rust workspace split, not a misplaced source tree. `apps/` contains the operator-facing binary entrypoint and `crates/` holds the reusable runtime components. In other words, the code is still in `src/`, but each crate owns its own `src/`.
+
 ```text
 apps/
   bco/                 entrypoint binary
@@ -78,7 +80,15 @@ docker run --rm brain-cell-orchestration
 
 ## Current Status
 
-This repository is intentionally at bootstrap stage. The current implementation compiles as a minimal Rust workspace and prints the initial orchestration blueprint. The detailed build plan and product scope live in [PLAN.md](/Users/pf/workspace/brain-cell-orchestration/docs/planning/PLAN.md).
+This repository has moved past the initial bootstrap stage. The current implementation now provides a working local-first CLI/TUI runtime with:
+
+- `exec`, `review`, `resume`, `fork`, `providers`, and `models`
+- local session persistence under `.bco/sessions/<session-id>`
+- append-only `transcript.jsonl`, `plan.jsonl`, `orchestrator_events.jsonl`, `cell_topology.jsonl`, and `pending_work.jsonl`
+- first-pass planner/coordinator/executor/reviewer offensive workflow orchestration
+- Kali-based runtime packaging aligned with `../pentesting`
+
+What is still incomplete is the depth of autonomous execution, not the existence of the runtime shell. The detailed build plan and product scope live in [PLAN.md](/Users/pf/workspace/brain-cell-orchestration/docs/planning/PLAN.md).
 
 For actual build execution, use [RUNBOOK.md](/Users/pf/workspace/brain-cell-orchestration/docs/RUNBOOK.md) as the working runbook.
 

@@ -33,3 +33,12 @@ docs/
 - `planning/PLAN.md`: product plan and execution philosophy
 - `planning/ROADMAP.md`: milestone overview
 - `research/REFERENCE_ANALYSIS.md`: extracted strengths from reference projects
+
+## Source Tree Note
+
+This repository uses a Rust workspace layout:
+
+- `apps/bco/src`: binary entrypoint
+- `crates/*/src`: library crates for core runtime pieces
+
+There is no single top-level `src/` by design. Each crate owns its own `src/` directory.

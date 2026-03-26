@@ -134,7 +134,7 @@ fn exec_command(objective: &[String]) {
         infer_domain(&objective_text),
         RiskProfile::Moderate,
     );
-    let session = SessionBootstrap::new("local-bootstrap");
+    let session = SessionBootstrap::new(session_profile_for(&intent));
 
     // Bootstrap session
     if let Err(e) = session.bootstrap() {
@@ -542,6 +542,7 @@ struct SessionSnapshot {
     plan_steps: Vec<String>,
     transcript: Vec<String>,
     next_action: Option<String>,
+    active_cells: Vec<(String, String)>,
 }
 
 impl SessionSnapshot {
@@ -552,6 +553,11 @@ impl SessionSnapshot {
         state.status.objective = Some(self.meta.profile.clone());
         state.current_plan = self.plan_steps.clone();
         state.transcript.extend(self.transcript);
+        state.active_cells = self
+            .active_cells
+            .into_iter()
+            .map(|(name, status)| bco_tui::CellDisplay { name, status })
+            .collect();
         state.status.model = self.runtime.active_model.clone();
         if let Some(ref model) = self.runtime.active_model {
             if let Ok(model_ref) = ModelRef::parse(model) {
@@ -568,7 +574,7 @@ impl SessionSnapshot {
 fn load_session_snapshot(session_dir: &PathBuf) -> Result<SessionSnapshot, String> {
     let meta = load_session_meta(session_dir)?;
     let runtime = load_session_runtime(session_dir)?;
-    let (plan_steps, transcript, next_action) = parse_orchestrator_events(session_dir)?;
+    let (plan_steps, transcript, next_action, active_cells) = parse_session_artifacts(session_dir)?;
 
     Ok(SessionSnapshot {
         meta,
@@ -576,56 +582,95 @@ fn load_session_snapshot(session_dir: &PathBuf) -> Result<SessionSnapshot, Strin
         plan_steps,
         transcript,
         next_action,
+        active_cells,
     })
 }
 
-fn parse_orchestrator_events(session_dir: &PathBuf) -> Result<(Vec<String>, Vec<String>, Option<String>), String> {
-    let path = session_dir.join("orchestrator_events.jsonl");
-    let content = fs::read_to_string(&path)
-        .map_err(|e| format!("Failed to read orchestrator events: {}", e))?;
+fn parse_session_artifacts(
+    session_dir: &PathBuf,
+) -> Result<(Vec<String>, Vec<String>, Option<String>, Vec<(String, String)>), String> {
+    let plan_steps = parse_plan_log(session_dir)?;
+    let transcript = parse_transcript_log(session_dir)?;
+    let active_cells = parse_cell_states(session_dir)?;
+    let next_action = plan_steps
+        .iter()
+        .find_map(|step| step.strip_prefix("[active] ").map(str::to_string))
+        .or_else(|| {
+            plan_steps
+                .iter()
+                .find_map(|step| step.strip_prefix("[pending] ").map(str::to_string))
+        });
+    Ok((plan_steps, transcript, next_action, active_cells))
+}
 
+fn parse_plan_log(session_dir: &PathBuf) -> Result<Vec<String>, String> {
+    let path = session_dir.join("plan.jsonl");
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read plan log: {}", e))?;
     let mut plan_steps = Vec::new();
-    let mut transcript = Vec::new();
-    let mut next_action = None;
 
     for line in content.lines() {
         if line.trim().is_empty() {
             continue;
         }
 
-        let value: serde_json::Value = serde_json::from_str(line)
-            .map_err(|e| format!("Failed to parse orchestrator event line: {}", e))?;
-
-        if let Some(event) = value.get("event") {
-            if let Some(plan) = event.get("ObjectivePlanReady") {
-                if let Some(steps) = plan.get("steps").and_then(|steps| steps.as_array()) {
-                    for (index, step) in steps.iter().filter_map(|step| step.as_str()).enumerate() {
-                        let rendered = if index == 0 {
-                            format!("[active] {}", step)
-                        } else {
-                            format!("[pending] {}", step)
-                        };
-                        if next_action.is_none() {
-                            next_action = Some(step.to_string());
-                        }
-                        plan_steps.push(rendered);
-                    }
-                }
-            }
-
-            if let Some(cell) = event.get("CellSpawned").and_then(|cell| cell.get("cell_type")).and_then(|cell| cell.as_str()) {
-                transcript.push(format!("[cell] spawned {}", cell));
-            } else if event.get("InteractionBegin").is_some() {
-                transcript.push("[coord] delegated work to executor".to_string());
-            } else if event.get("TurnCompleted").is_some() {
-                transcript.push("[turn] completed".to_string());
-            } else if event.get("TurnSubmitted").is_some() {
-                transcript.push("[turn] submitted".to_string());
-            }
+        let entry: PlanLogEntry = serde_json::from_str(line)
+            .map_err(|e| format!("Failed to parse plan log line: {}", e))?;
+        for (index, step) in entry.steps.iter().enumerate() {
+            let rendered = if index == 0 {
+                format!("[active] {}", step)
+            } else {
+                format!("[pending] {}", step)
+            };
+            plan_steps.push(rendered);
         }
     }
 
-    Ok((plan_steps, transcript, next_action))
+    Ok(plan_steps)
+}
+
+fn parse_transcript_log(session_dir: &PathBuf) -> Result<Vec<String>, String> {
+    let path = session_dir.join("transcript.jsonl");
+    let content = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read transcript log: {}", e))?;
+    let mut transcript = Vec::new();
+
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: TranscriptLogEntry = serde_json::from_str(line)
+            .map_err(|e| format!("Failed to parse transcript log line: {}", e))?;
+        transcript.push(entry.line);
+    }
+
+    Ok(transcript)
+}
+
+fn parse_cell_states(session_dir: &PathBuf) -> Result<Vec<(String, String)>, String> {
+    let topology_path = session_dir.join("cell_topology.jsonl");
+    let topology_content = fs::read_to_string(&topology_path)
+        .map_err(|e| format!("Failed to read cell topology log: {}", e))?;
+    let events_path = session_dir.join("orchestrator_events.jsonl");
+    let events_content = fs::read_to_string(&events_path)
+        .map_err(|e| format!("Failed to read orchestrator events: {}", e))?;
+
+    let turn_completed = events_content.lines().any(|line| line.contains("\"TurnCompleted\""));
+    let fallback_status = if turn_completed { "completed" } else { "idle" };
+    let mut active_cells = Vec::new();
+
+    for line in topology_content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let entry: CellTopologyLogEntry = serde_json::from_str(line)
+            .map_err(|e| format!("Failed to parse cell topology line: {}", e))?;
+        active_cells.push((entry.cell_type, fallback_status.to_string()));
+    }
+
+    Ok(active_cells)
 }
 
 fn print_session_snapshot(snapshot: &SessionSnapshot) {
@@ -642,6 +687,12 @@ fn print_session_snapshot(snapshot: &SessionSnapshot) {
         println!("  Plan:");
         for step in &snapshot.plan_steps {
             println!("    {}", step);
+        }
+    }
+    if !snapshot.active_cells.is_empty() {
+        println!("  Cells:");
+        for (name, status) in &snapshot.active_cells {
+            println!("    {} ({})", name, status);
         }
     }
 }
@@ -764,4 +815,46 @@ fn hydrate_model_status(state: &mut TuiState) {
                 .unwrap_or(ConnectionHealth::Unknown);
         }
     }
+}
+
+fn session_profile_for(intent: &TaskIntent) -> String {
+    let domain = match intent.domain() {
+        IntentDomain::Ctf => "ctf",
+        IntentDomain::Pentesting => "offensive",
+        IntentDomain::Coding => "coding",
+        IntentDomain::GeneralEngineering => "general",
+    };
+    let slug = intent
+        .objective()
+        .split_whitespace()
+        .take(6)
+        .map(|part| {
+            part.chars()
+                .filter(|ch| ch.is_ascii_alphanumeric())
+                .collect::<String>()
+                .to_lowercase()
+        })
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    if slug.is_empty() {
+        format!("{}-session", domain)
+    } else {
+        format!("{}-{}", domain, slug)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct TranscriptLogEntry {
+    line: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlanLogEntry {
+    steps: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CellTopologyLogEntry {
+    cell_type: String,
 }

@@ -1862,6 +1862,19 @@ struct PendingWorkLogEntry {
     retry_class: &'static str,
 }
 
+#[derive(Debug, Clone, Serialize)]
+struct TranscriptEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    line: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct PlanEntry {
+    timestamp: chrono::DateTime<chrono::Utc>,
+    objective_id: ObjectiveId,
+    steps: Vec<String>,
+}
+
 /// Orchestrator runtime - wired execution loop
 #[derive(Debug)]
 pub struct OrchestratorRuntime {
@@ -1912,12 +1925,22 @@ impl OrchestratorRuntime {
         }
 
         let event_path = layout.orchestrator_events_jsonl();
+        let transcript_path = layout.transcript_jsonl();
+        let plan_path = layout.plan_jsonl();
         let topology_path = layout.cell_topology_jsonl();
         let model_path = layout.model_events_jsonl();
         let file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&event_path)?;
+        let transcript_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&transcript_path)?;
+        let plan_file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&plan_path)?;
         let topology_file = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -1928,6 +1951,8 @@ impl OrchestratorRuntime {
             .open(&model_path)?;
 
         let mut file = std::io::BufWriter::new(file);
+        let mut transcript_file = std::io::BufWriter::new(transcript_file);
+        let mut plan_file = std::io::BufWriter::new(plan_file);
         let mut topology_file = std::io::BufWriter::new(topology_file);
         let mut model_file = std::io::BufWriter::new(model_file);
         for event in events {
@@ -1939,6 +1964,13 @@ impl OrchestratorRuntime {
             let json = serde_json::to_string(&entry)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
             writeln!(file, "{}", json)?;
+            let transcript_entry = TranscriptEntry {
+                timestamp: now,
+                line: event_to_transcript_line(&entry.event),
+            };
+            let json = serde_json::to_string(&transcript_entry)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            writeln!(transcript_file, "{}", json)?;
             match event {
                 OrchestrationEvent::CellSpawned { cell, parent, cell_type } => {
                     let topology = CellTopologyEntry {
@@ -1962,10 +1994,22 @@ impl OrchestratorRuntime {
                         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
                     writeln!(model_file, "{}", json)?;
                 }
+                OrchestrationEvent::ObjectivePlanReady { id, steps } => {
+                    let plan_entry = PlanEntry {
+                        timestamp: now,
+                        objective_id: id,
+                        steps,
+                    };
+                    let json = serde_json::to_string(&plan_entry)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                    writeln!(plan_file, "{}", json)?;
+                }
                 _ => {}
             }
         }
         file.flush()?;
+        transcript_file.flush()?;
+        plan_file.flush()?;
         topology_file.flush()?;
         model_file.flush()?;
         Ok(())

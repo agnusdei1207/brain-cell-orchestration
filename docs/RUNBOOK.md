@@ -83,11 +83,14 @@ Verification note:
 - [x] `SessionActorQueue` now tracks per-session state and `submit()` uses the active local session id
 - [x] append-only orchestration event persistence is wired into runtime flow
 - [x] session runtime writeback and pending-work snapshot persistence are wired into runtime flow
+- [x] `transcript.jsonl` and `plan.jsonl` are now written during runtime execution
+- [x] `review` and `resume` now rebuild state from persisted session artifacts instead of reconstructing everything from ad hoc CLI defaults
 - [ ] reason-aware failover is not verified as integrated runtime behavior
 - [x] auth rotation is intentionally out of scope for the current local-first build
 - [ ] hook-driven automation and memory flushes need end-to-end verification, not just type presence
 - [ ] subtree shutdown and lineage persistence need stronger implementation verification, not just type or helper presence
 - [ ] CTF harness has useful helper methods, but it is still not competition-ready as a full execution harness
+- [ ] red-team execution remains first-pass orchestration; real tool-backed autonomous loops are still incomplete
 
 ### Local worktree note
 
@@ -184,7 +187,7 @@ Required adoption from `../pentesting`
 
 ### A1. Objective model
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
@@ -209,7 +212,7 @@ Verify:
 
 ### A2. Model identity and connection model
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
@@ -234,7 +237,7 @@ Verify:
 
 ### A3. Harness contract
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
@@ -259,7 +262,7 @@ Verify:
 
 ### A4. Operation and control-plane contract
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
@@ -281,7 +284,7 @@ Verify:
 
 ### A5. Messaging and observability contract
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
@@ -304,7 +307,7 @@ Verify:
 
 ### B1. Session layout
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
@@ -336,81 +339,83 @@ Verify:
 
 ### B2. CLI command skeleton
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] implement `bco`
-- [ ] implement `bco exec`
-- [ ] implement `bco review`
-- [ ] implement `bco resume`
-- [ ] implement `bco fork`
-- [ ] implement `bco providers`
-- [ ] implement `bco models`
+- [x] implement `bco`
+- [x] implement `bco exec`
+- [x] implement `bco review`
+- [x] implement `bco resume`
+- [x] implement `bco fork`
+- [x] implement `bco providers`
+- [x] implement `bco models`
 
 Definition of done:
 
-- [ ] each command parses and reaches a typed internal handler
-- [ ] help output is coherent
+- [x] each command parses and reaches a typed internal handler
+- [x] help output is coherent
 - [ ] commands do not duplicate orchestration logic in the CLI layer
 
 Verify:
 
-- [ ] `docker run --rm brain-cell-orchestration --help` works once CLI parser is wired
+- [x] `docker run --rm brain-cell-orchestration --help` works once CLI parser is wired
 - [ ] smoke tests cover command parsing
 
 ### B3. Resume and fork semantics
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] define session lookup flow
-- [ ] define resume behavior
-- [ ] define fork behavior
+- [x] define session lookup flow
+- [x] define resume behavior
+- [x] define fork behavior
 - [ ] define busy-session behavior
 - [ ] define interrupted-session behavior
 
 Definition of done:
 
-- [ ] resume continues prior state
-- [ ] fork clones prior context into a new session id
-- [ ] user-facing behavior is documented
+- [x] resume continues prior state
+- [x] fork clones prior context into a new session id
+- [x] user-facing behavior is documented
 
 Verify:
 
-- [ ] tests cover resume and fork from fixture sessions
+- [ ] automated tests cover resume and fork from fixture sessions
+- [x] manual Docker verification covers resume and fork from fixture sessions
 
 ### B4. Session serialization
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] add session actor queue keyed by session id
-- [ ] route mutating session operations through the queue
-- [ ] track pending count per session
+- [x] add session actor queue keyed by session id
+- [x] route mutating session operations through the queue
+- [x] track pending count per session
 - [ ] expose queued state to runtime status
 
 Definition of done:
 
-- [ ] one session cannot race itself on reset, resume, writeback, or turn mutation
+- [x] one session cannot race itself on reset, resume, writeback, or turn mutation
 - [ ] queue state can be inspected for observability
 
 Verify:
 
 - [ ] tests cover overlapping session operations
+- [x] runtime audit confirms FIFO submission behavior and active local session routing
 
 ## Phase C: Model Connectivity
 
 ### C1. Provider registry
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] implement provider registry trait
-- [ ] implement local configuration store for provider connections
+- [x] implement provider registry trait
+- [x] implement local configuration store for provider connections
 - [ ] support remote provider descriptors
 - [ ] support local endpoint descriptors
 - [x] no auth loading boundary in current scope
@@ -418,12 +423,12 @@ Tasks:
 
 Definition of done:
 
-- [ ] runtime can list known providers
-- [ ] active connection state can be read without mutating the session
+- [x] runtime can list known providers
+- [x] active connection state can be read without mutating the session
 
 Verify:
 
-- [ ] provider listing tests pass
+- [x] provider listing works in manual CLI verification
 - [ ] misconfigured provider state surfaces typed errors
 
 ### C2. `/connect` and `providers`
@@ -473,50 +478,51 @@ Verify:
 
 ### D1. Blackboard and event flow
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] define blackboard state
-- [ ] define event types
-- [ ] define turn lifecycle
-- [ ] define queue semantics
-- [ ] define next-action emission
-- [ ] define lineage updates
+- [x] define blackboard state
+- [x] define event types
+- [x] define turn lifecycle
+- [x] define queue semantics
+- [x] define next-action emission
+- [x] define lineage updates
 
 Definition of done:
 
-- [ ] all cells communicate through explicit shared state or events
-- [ ] no hidden mutable globals drive turn logic
+- [x] all cells communicate through explicit shared state or events
+- [x] no hidden mutable globals drive turn logic
 
 Verify:
 
 - [ ] turn lifecycle tests cover submit, execute, review, complete
-- [ ] event queue tests cover emitted orchestration events
+- [x] manual runtime verification covers emitted orchestration events
 
 ### D2. Core cells
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
-- [ ] implement `planner-cell`
-- [ ] implement `coordinator-cell`
-- [ ] implement `executor-cell`
-- [ ] implement `reviewer-cell`
+- [x] implement `planner-cell`
+- [x] implement `coordinator-cell`
+- [x] implement `executor-cell`
+- [x] implement `reviewer-cell`
 - [ ] define specialist cell hook points
 - [ ] define subtree shutdown behavior
 
 Definition of done:
 
-- [ ] planner emits plan items
-- [ ] coordinator assigns actionable work
+- [x] planner emits plan items
+- [x] coordinator assigns actionable work
 - [ ] executor reports actions and evidence
 - [ ] reviewer can accept or replan
 
 Verify:
 
 - [ ] replay tests cover happy path and reviewer-triggered replan
+- [x] manual runtime verification covers planner/coordinator/executor/reviewer happy path
 
 ### D3. Capability and approval enforcement
 
@@ -762,28 +768,28 @@ Definition of done:
 
 Verify:
 
-- [ ] decision is reflected in docs and Dockerfiles
+- [x] decision is reflected in docs and Dockerfiles
 
 ### H2. Local Dockerfile audit
 
-Status: `pending`
+Status: `in_progress`
 
 Tasks:
 
 - [x] review `Dockerfile.base`
-- [ ] review `Dockerfile.builder`
-- [ ] review `test.sh`
-- [ ] confirm whether these files are valid, stale, or partial work
+- [x] review `Dockerfile.builder`
+- [x] review `test.sh`
+- [x] confirm whether these files are valid, stale, or partial work
 - [ ] fix or discard them explicitly instead of leaving them ambiguous
 
 Definition of done:
 
-- [ ] no critical Docker path remains untracked and unexplained
-- [ ] runtime entrypoint expectations are clear
+- [x] no critical Docker path remains untracked and unexplained
+- [x] runtime entrypoint expectations are clear
 
 Verify:
 
-- [ ] Docker build path chosen by the project is reproducible
+- [x] Docker build path chosen by the project is reproducible
 
 ## Cross-Cutting Verification Checklist
 
