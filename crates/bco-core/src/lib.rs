@@ -28,18 +28,18 @@ impl std::fmt::Display for ObjectiveId {
 }
 
 /// Risk profile classification for tasks
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum RiskProfile {
     /// Minimal risk, read-only operations
-    Safe,
+    Safe = 0,
     /// Moderate risk, may modify local files
-    Moderate,
+    Moderate = 1,
     /// Elevated risk, may execute code or modify system
-    Elevated,
+    Elevated = 2,
     /// High risk, requires explicit approval
-    High,
+    High = 3,
     /// Critical risk, requires multi-party approval
-    Critical,
+    Critical = 4,
 }
 
 impl RiskProfile {
@@ -274,6 +274,62 @@ impl TaskIntent {
 // =============================================================================
 // A2: Model Identity and Connection Model
 // =============================================================================
+
+/// Provider registry for managing provider connections
+#[derive(Debug)]
+pub struct ProviderRegistry {
+    providers: std::collections::HashMap<String, ConnectionProfile>,
+}
+
+impl ProviderRegistry {
+    pub fn new() -> Self {
+        Self {
+            providers: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Add or update a provider connection
+    pub fn upsert(&mut self, profile: ConnectionProfile) {
+        self.providers.insert(profile.provider.as_str().to_string(), profile);
+    }
+
+    /// Get a provider by name
+    pub fn get(&self, name: &str) -> Option<&ConnectionProfile> {
+        self.providers.get(name)
+    }
+
+    /// List all provider names
+    pub fn list_names(&self) -> Vec<&str> {
+        self.providers.keys().map(|s| s.as_str()).collect()
+    }
+
+    /// Check if a provider is connected
+    pub fn is_connected(&self, name: &str) -> bool {
+        self.providers
+            .get(name)
+            .map(|p| p.state == ConnectionState::Connected)
+            .unwrap_or(false)
+    }
+
+    /// Remove a provider
+    pub fn remove(&mut self, name: &str) -> Option<ConnectionProfile> {
+        self.providers.remove(name)
+    }
+
+    /// Get connection health status for all providers
+    pub fn health_status(&self) -> Vec<(&str, ConnectionState)> {
+        self.providers
+            .iter()
+            .map(|(name, profile)| (name.as_str(), profile.state))
+            .collect()
+    }
+}
+
+impl Default for ProviderRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 use std::fmt;
 

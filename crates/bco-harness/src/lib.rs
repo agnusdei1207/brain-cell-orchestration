@@ -186,6 +186,65 @@ impl CtfHarness {
     pub fn new() -> Self {
         Self
     }
+
+    /// Decompose CTF challenge into phases
+    pub fn decompose_challenge(&self) -> Vec<CtfPhase> {
+        vec![
+            CtfPhase::Recon,
+            CtfPhase::Exploit,
+            CtfPhase::Review,
+        ]
+    }
+
+    /// Get evidence expectations for CTF
+    pub fn evidence_expectations(&self) -> CtfEvidenceExpectations {
+        CtfEvidenceExpectations {
+            flag_captured: true,
+            exploit_script: true,
+            methodology_notes: true,
+            screenshots: false, // Usually not required
+        }
+    }
+
+    /// Narrow down next steps for high signal
+    pub fn narrow_next_steps(&self, findings: &[String]) -> Vec<String> {
+        // Filter for high-signal findings
+        findings.iter()
+            .filter(|f| {
+                f.contains("flag") ||
+                f.contains("vulnerability") ||
+                f.contains("exploit") ||
+                f.contains("password") ||
+                f.contains("key")
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CtfPhase {
+    Recon,
+    Exploit,
+    Review,
+}
+
+impl CtfPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Recon => "recon",
+            Self::Exploit => "exploit",
+            Self::Review => "review",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CtfEvidenceExpectations {
+    pub flag_captured: bool,
+    pub exploit_script: bool,
+    pub methodology_notes: bool,
+    pub screenshots: bool,
 }
 
 impl Default for CtfHarness {
@@ -238,6 +297,61 @@ impl PentestHarness {
     pub fn new() -> Self {
         Self
     }
+
+    /// Decompose pentest into scoped offensive workflow
+    pub fn decompose_workflow(&self) -> Vec<PentestPhase> {
+        vec![
+            PentestPhase::Scoping,
+            PentestPhase::Reconnaissance,
+            PentestPhase::VulnerabilityAssessment,
+            PentestPhase::Exploitation,
+            PentestPhase::PostExploitation,
+            PentestPhase::Reporting,
+        ]
+    }
+
+    /// Get reporting artifact expectations
+    pub fn reporting_expectations(&self) -> PentestReportingExpectations {
+        PentestReportingExpectations {
+            executive_summary: true,
+            scope_confirmation: true,
+            findings_detail: true,
+            evidence_attachments: true,
+            remediation_guidance: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PentestPhase {
+    Scoping,
+    Reconnaissance,
+    VulnerabilityAssessment,
+    Exploitation,
+    PostExploitation,
+    Reporting,
+}
+
+impl PentestPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Scoping => "scoping",
+            Self::Reconnaissance => "reconnaissance",
+            Self::VulnerabilityAssessment => "vuln_assessment",
+            Self::Exploitation => "exploitation",
+            Self::PostExploitation => "post_exploitation",
+            Self::Reporting => "reporting",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PentestReportingExpectations {
+    pub executive_summary: bool,
+    pub scope_confirmation: bool,
+    pub findings_detail: bool,
+    pub evidence_attachments: bool,
+    pub remediation_guidance: bool,
 }
 
 impl Default for PentestHarness {
@@ -290,6 +404,56 @@ impl CodingHarness {
     pub fn new() -> Self {
         Self
     }
+
+    /// Decompose coding task into phases
+    pub fn decompose_phases(&self) -> Vec<CodingPhase> {
+        vec![
+            CodingPhase::Analysis,
+            CodingPhase::Design,
+            CodingPhase::Implementation,
+            CodingPhase::Testing,
+            CodingPhase::Review,
+        ]
+    }
+
+    /// Get artifact expectations for coding tasks
+    pub fn artifact_expectations(&self) -> ArtifactExpectations {
+        ArtifactExpectations {
+            source_files: true,
+            tests: true,
+            documentation: true,
+            build_manifest: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CodingPhase {
+    Analysis,
+    Design,
+    Implementation,
+    Testing,
+    Review,
+}
+
+impl CodingPhase {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Analysis => "analysis",
+            Self::Design => "design",
+            Self::Implementation => "implementation",
+            Self::Testing => "testing",
+            Self::Review => "review",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ArtifactExpectations {
+    pub source_files: bool,
+    pub tests: bool,
+    pub documentation: bool,
+    pub build_manifest: bool,
 }
 
 impl Default for CodingHarness {
@@ -320,7 +484,14 @@ impl Harness for CodingHarness {
     }
 
     fn capability_policy(&self) -> CapabilityPolicy {
-        CapabilityPolicy::default()
+        CapabilityPolicy {
+            can_read: true,
+            can_write: true,
+            can_execute: true,
+            can_network: false,
+            max_risk_profile: RiskProfile::Elevated,
+            requires_approval_above: RiskProfile::High,
+        }
     }
 
     fn model_preference(&self) -> ModelPreference {
@@ -334,6 +505,43 @@ pub struct GeneralistHarness;
 impl GeneralistHarness {
     pub fn new() -> Self {
         Self
+    }
+
+    /// Decompose a general objective into subgoals
+    pub fn decompose(&self, objective: &str) -> Vec<String> {
+        // Simple decomposition heuristics
+        let mut subgoals = Vec::new();
+
+        // Look for common patterns
+        if objective.contains("setup") || objective.contains("initialize") {
+            subgoals.push("Research and gather requirements".to_string());
+            subgoals.push("Plan implementation approach".to_string());
+            subgoals.push("Execute setup steps".to_string());
+            subgoals.push("Verify setup success".to_string());
+        } else if objective.contains("build") || objective.contains("create") {
+            subgoals.push("Analyze requirements".to_string());
+            subgoals.push("Design solution".to_string());
+            subgoals.push("Implement".to_string());
+            subgoals.push("Test".to_string());
+        } else if objective.contains("fix") || objective.contains("debug") {
+            subgoals.push("Identify root cause".to_string());
+            subgoals.push("Implement fix".to_string());
+            subgoals.push("Verify fix".to_string());
+        } else {
+            // Default decomposition
+            subgoals.push("Understand the task".to_string());
+            subgoals.push("Plan approach".to_string());
+            subgoals.push("Execute".to_string());
+            subgoals.push("Review results".to_string());
+        }
+
+        subgoals
+    }
+
+    /// Check if objective is complete
+    pub fn is_complete(&self, _objective: &str, _subgoals: &[String]) -> bool {
+        // Placeholder - real implementation would check all subgoals
+        true
     }
 }
 
