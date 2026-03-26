@@ -1,0 +1,52 @@
+{
+  "name": "brain-cell-orchestration",
+  "version": "0.1.0",
+  "description": "Dynamic task orchestration runtime for CTF, pentesting, coding, and general operator workflows",
+  "type": "module",
+  "bin": {
+    "bco": "dist/bco"
+  },
+  "files": [
+    "dist",
+    "Dockerfile"
+  ],
+  "scripts": {
+    "dev": "npm run docker:local && docker run -it --rm -v $(pwd):/app -w /app agnusdei1207/bco:latest",
+    "build": "docker build -t agnusdei1207/bco:latest .",
+    "build:release": "docker build -t agnusdei1207/bco:latest --build-arg BUILD_MODE=release .",
+    "start": "docker run -it --rm -v $(pwd):/app -w /app agnusdei1207/bco:latest",
+    "start:local": "docker run -it --rm -v $(pwd):/app -w /app --entrypoint bco agnusdei1207/bco:latest",
+    "docker:base:local": "docker build -t agnusdei1207/bco:local -f Dockerfile.builder .",
+    "docker:local": "npm run docker:base:local",
+    "clean": "docker system prune -af --volumes",
+    "check": "npm run clean && npm run docker:local && npm run build",
+    "exec": "docker run --rm -v $(pwd):/app -w /app agnusdei1207/bco:latest exec"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agnusdei1207/brain-cell-orchestration"
+  },
+  "homepage": "https://agnusdei1207.github.io/brain-cell-orchestration",
+  "bugs": {
+    "url": "https://github.com/agnusdei1207/brain-cell-orchestration"
+  },
+  "keywords": [
+    "orchestration",
+    "agent",
+    "claude",
+    "anthropic",
+    "brain-cell",
+    "ctf",
+    "pentesting",
+    "hacking",
+    "tui",
+    "cli",
+    "rust"
+  ],
+  "author": "pf",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "docker": ">=20.0.0"
+  }
+}
