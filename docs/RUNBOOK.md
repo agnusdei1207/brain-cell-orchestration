@@ -780,7 +780,7 @@ Tasks:
 - [x] review `Dockerfile.builder`
 - [x] review `test.sh`
 - [x] confirm whether these files are valid, stale, or partial work
-- [ ] fix or discard them explicitly instead of leaving them ambiguous
+- [x] fix or discard them explicitly instead of leaving them ambiguous
 
 Definition of done:
 
