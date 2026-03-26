@@ -90,6 +90,12 @@ The runtime should keep:
 
 This is required for long tasks, interruptions, retries, and post-run analysis.
 
+Local-first rule:
+
+- session persistence should default to local file storage at the execution location
+- session state should not require a remote server round-trip
+- server-style orchestration ideas may be borrowed structurally, but the persistence model should remain local-first unless explicitly changed later
+
 ### 6. Observability is part of correctness
 
 If the runtime cannot explain:
@@ -154,4 +160,3 @@ Do not optimize for:
 When making a design decision, prefer the option that makes the common orchestration core stronger and the harness layer thinner.
 
 If a change makes the harness thicker but the core weaker, it is probably the wrong direction.
-

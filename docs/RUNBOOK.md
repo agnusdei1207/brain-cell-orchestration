@@ -32,6 +32,7 @@ This project exists because the prior lesson was clear:
 - stronger orchestration structure matters more
 - task switching should be handled by swapping thin harnesses
 - the orchestration core should stay common across domains
+- Codex-style orchestration can be copied without adopting a server-backed session model
 
 Implementation rule:
 
@@ -41,6 +42,12 @@ Replacement rule:
 
 - this repo is expected to replace `../pentesting`, not coexist with it permanently
 - packaging and migration decisions should assume final publication under the `pentesting` name
+
+Session storage rule:
+
+- implement local file-based session storage first
+- do not introduce a server requirement for session persistence
+- if remote control ever appears later, it must remain optional over the same local session files
 
 ## Current Repo Audit
 

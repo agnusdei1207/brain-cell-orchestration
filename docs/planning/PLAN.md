@@ -45,6 +45,12 @@ Product transition insight:
 - the old Pentesting implementation is expected to be removed
 - the new runtime is expected to ship under the existing `pentesting` npm identity
 
+Session storage insight:
+
+- Codex orchestration is the benchmark, but not its server-backed session topology
+- this project should store sessions locally where it runs
+- resume, fork, replay, checkpoints, and runtime metadata should work without any server dependency
+
 ## 3. Benchmark Targets
 
 ### Codex traits to benchmark
@@ -151,6 +157,7 @@ Design implication:
 - Docker-first build and packaging
 - isolated crate boundaries
 - deterministic session file layout
+- local-first file-based session persistence
 - explicit capability and approval model
 - reproducible test strategy
 - durable restart-safe persistence semantics

@@ -15,6 +15,12 @@ Project insight:
 
 The philosophy behind these rules is recorded in [PHILOSOPHY.md](/Users/pf/workspace/brain-cell-orchestration/docs/philosophy/PHILOSOPHY.md).
 
+Important boundary:
+
+- Codex is the orchestration reference, not the session transport reference
+- this project should not require a server-backed session store
+- session state should be stored locally in the execution environment by default
+
 The orchestration reference point is Codex-style goal-directed execution. OpenClaw is the reference for autonomy and persistence behaviors. OpenCode is the reference for provider-agnostic model connectivity and fast switching. Claude Code is only a terminal UX reference.
 
 Reference extraction details live in [REFERENCE_ANALYSIS.md](/Users/pf/workspace/brain-cell-orchestration/docs/research/REFERENCE_ANALYSIS.md).
@@ -277,6 +283,12 @@ Reasons:
 - replanning requires prior context
 - debugging agent behavior requires provenance
 - autonomous continuation requires restart-safe state
+
+Storage rule:
+
+- session persistence is local-first and file-first
+- no server dependency is required for normal session storage, resume, replay, or checkpointing
+- if a remote surface exists later, it should be an optional client layer over the same local session model
 
 Persisted state should include:
 
