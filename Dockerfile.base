@@ -1,20 +1,3 @@
-# =============================================================================
-# Builder stage - compiles the bco binary
-# =============================================================================
-FROM rust:1.90-bookworm AS builder
-
-WORKDIR /workspace
-
-COPY Cargo.toml ./
-COPY Cargo.lock ./
-COPY apps ./apps
-COPY crates ./crates
-
-RUN cargo build --release --bin bco
-
-# =============================================================================
-# Runtime stage - Kali-based for CTF/offensive tooling compatibility
-# =============================================================================
 FROM kalilinux/kali-rolling
 
 # Avoid prompts during installation
@@ -34,7 +17,7 @@ RUN echo "deb [signed-by=/usr/share/keyrings/kali-archive-keyring.gpg] http://ka
     curl -fsSL https://archive.kali.org/archive-keyring.gpg | gpg --dearmor > /usr/share/keyrings/kali-archive-keyring.gpg && \
     apt-get update -qq
 
-# Core runtime tools - minimal for bco orchestration
+# Core tools for brain-cell-orchestration
 RUN apt-get install -y --no-install-recommends \
     bash \
     build-essential \
@@ -45,15 +28,8 @@ RUN apt-get install -y --no-install-recommends \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user for security
-RUN useradd --create-home --shell /bin/bash app
+# Rust toolchain
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && \
+    ln -s /root/.cargo/bin/cargo /usr/local/bin/cargo || true
 
-WORKDIR /app
-
-# Copy binary from builder
-COPY --from=builder /workspace/target/release/bco /usr/local/bin/bco
-
-USER app
-
-ENTRYPOINT ["bco"]
-
+# Keep Kali base for offensive tooling that integrates with bco orchestration

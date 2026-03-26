@@ -23,6 +23,115 @@ Instruction for implementation agents:
 - every milestone must end with a commit and push
 - every item marked `verify` must be checked before proceeding
 
+## Current Repo Audit
+
+This section records what appears to be implemented already versus what is still only planned.
+
+### Confirmed implemented now
+
+- [x] Rust workspace exists
+- [x] top-level CLI subcommands exist for `exec`, `review`, `resume`, `fork`, `providers`, `models`
+- [x] objective and risk-related core types exist
+- [x] harness contract types and placeholder harnesses exist
+- [x] orchestrator crate contains first-pass control-plane and cell identity types
+- [x] session layout and runtime metadata types exist
+- [x] TUI layout and status types exist
+- [x] current Debian-based Docker build still compiles
+
+### Confirmed missing or incomplete now
+
+- [ ] real inter-cell message bus is not yet fully implemented
+- [ ] real submission queue and event queue are not yet wired end-to-end
+- [ ] session actor queue is not yet implemented
+- [ ] reason-aware failover is not yet implemented in Rust runtime
+- [ ] auth profile rotation and cooldown system is not yet implemented
+- [ ] hook-driven automation and memory flushes are not yet implemented
+- [ ] subtree shutdown and lineage persistence need verification in code, not just types
+- [ ] session writeback files and append-only logs need implementation verification
+- [ ] CTF harness is still placeholder-level, not competition-ready
+- [x] current main Dockerfile is not yet aligned with the requested Kali runtime path
+
+### Local worktree note
+
+- [x] untracked files currently exist: `Dockerfile.base`, `test.sh`
+- [x] these must be reviewed before merge, not blindly adopted
+- [x] `Dockerfile.base` currently contains a likely typo: symlink uses `bcargo` instead of `cargo`
+
+## Pattern Audit
+
+This section is the explicit audit for what to copy and what not to copy from references.
+
+### Must copy from Codex
+
+- [x] goal-directed orchestration as the central runtime philosophy
+- [x] task or operation abstraction instead of one giant loop
+- [x] dedicated control plane separate from execution logic
+- [x] typed inter-agent or inter-cell communication contract in the plan
+- [x] parent-child lineage and subtree shutdown in the plan
+- [x] resource guardrails such as spawn-depth limits in the plan
+- [x] service injection or runtime services boundary in the plan
+- [x] event-first observability in the plan
+- [ ] all of the above must also be verified in implementation, not just docs
+
+### Must copy from OpenClaw
+
+- [x] autonomy and persistence as product primitives
+- [x] pending-work, wakeup, retry, and resume concepts in the plan
+- [x] hook-based automation in the plan
+- [x] durable memory flush concepts in the plan
+- [x] per-session serialization requirement in the plan
+- [x] reason-aware failover requirement in the plan
+- [x] auth profile state and cooldown requirement in the plan
+- [x] session metadata writeback requirement in the plan
+- [ ] all of the above must also be verified in implementation, not just docs
+
+### Must copy from OpenCode
+
+- [x] `provider/model` identity
+- [x] `/model` and `/connect`
+- [x] provider registry and model switching separation
+- [x] top-level provider and model command surface
+
+### Must copy from Claude Code
+
+- [x] TUI density and terminal-first UX cues only
+- [x] visible operator controls
+- [ ] do not use Claude Code as orchestration reference
+
+### Must not copy
+
+- [ ] do not copy Codex command names blindly when the domain semantics differ
+- [ ] do not copy OpenClaw's messaging-channel product scope
+- [ ] do not copy OpenClaw's plugin breadth before core contracts stabilize
+- [ ] do not copy OpenCode's entire agent taxonomy before core runtime matures
+- [ ] do not copy Claude Code's runtime philosophy; only copy UI/UX cues
+
+## CTF And Kali Runtime Requirement
+
+Primary product target:
+
+- the runtime is expected to be used mainly for CTF competition workflows
+
+Implications:
+
+- the `ctf-harness` is not optional or later-only decoration
+- Docker runtime planning must optimize for CTF and offensive tooling compatibility
+- Kali-based runtime packaging should be treated as a first-class requirement
+
+Current state:
+
+- [x] reference runtime exists in `../pentesting/Dockerfile`
+- [x] local repo has an untracked `Dockerfile.base` intended to move toward Kali
+- [ ] current tracked `Dockerfile` is still `rust:1.90-bookworm -> debian:bookworm-slim`
+- [ ] the tracked runtime is therefore not yet aligned with the CTF-first Kali requirement
+
+Required adoption from `../pentesting`
+
+- [ ] use the Kali-based runtime approach as the canonical runtime direction
+- [ ] keep builder/runtime split explicit
+- [ ] document why Kali is required for the `ctf-harness`
+- [ ] validate the local `Dockerfile.base` before adopting because it currently appears unfinished
+
 ## Execution Order
 
 - Phase A: contracts first
@@ -32,6 +141,7 @@ Instruction for implementation agents:
 - Phase E: TUI MVP
 - Phase F: harness MVPs
 - Phase G: autonomy hardening
+- Phase H: CTF-first Kali runtime alignment
 
 ## Phase A: Contracts First
 
@@ -531,6 +641,9 @@ Tasks:
 - [ ] implement recon/exploit/review decomposition
 - [ ] implement evidence expectations
 - [ ] implement high-signal next-step narrowing
+- [ ] define challenge-type classification
+- [ ] define artifact expectations for flags, exploit notes, and scripts
+- [ ] define CTF-first tool and runtime assumptions
 
 ### F4. Pentest harness
 
@@ -547,6 +660,7 @@ Definition of done for Phase F:
 - [ ] all four harnesses register through the same trait
 - [ ] harness selection tests pass
 - [ ] harness-specific model preferences are visible
+- [ ] `ctf-harness` is clearly treated as a primary target, not a placeholder
 
 ## Phase G: Autonomy Hardening
 
@@ -590,6 +704,49 @@ Definition of done for Phase G:
 - [ ] interrupted sessions can recover useful state
 - [ ] autonomy never bypasses approval or policy
 - [ ] regression tests cover wake, retry, and restart
+
+## Phase H: CTF-First Kali Runtime Alignment
+
+### H1. Runtime base decision
+
+Status: `pending`
+
+Tasks:
+
+- [ ] compare tracked `Dockerfile` against `../pentesting/Dockerfile`
+- [ ] decide canonical builder image
+- [ ] decide canonical Kali runtime image
+- [ ] document why CTF workflows require Kali runtime support
+
+Definition of done:
+
+- [ ] runtime packaging direction is explicit
+- [ ] the team is no longer split between Debian runtime and Kali runtime assumptions
+
+Verify:
+
+- [ ] decision is reflected in docs and Dockerfiles
+
+### H2. Local Dockerfile audit
+
+Status: `pending`
+
+Tasks:
+
+- [ ] review `Dockerfile.base`
+- [ ] review `Dockerfile.builder`
+- [ ] review `test.sh`
+- [ ] confirm whether these files are valid, stale, or partial work
+- [ ] fix or discard them explicitly instead of leaving them ambiguous
+
+Definition of done:
+
+- [ ] no critical Docker path remains untracked and unexplained
+- [ ] runtime entrypoint expectations are clear
+
+Verify:
+
+- [ ] Docker build path chosen by the project is reproducible
 
 ## Cross-Cutting Verification Checklist
 
