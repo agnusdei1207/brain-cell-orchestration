@@ -182,6 +182,7 @@ Current implementation note:
 - local `review` and `continue` now treat `pending_work.jsonl` as the primary next-action queue, using plan position only as fallback
 - local denied sessions now preserve the denied action in `pending_work.jsonl` and render as paused rather than implicitly running
 - local `resume` now preserves the stored session state, so paused and completed sessions rehydrate faithfully instead of being reactivated by the CLI
+- local `continue` now acts as the explicit re-entry path for paused sessions, reopening preserved pending work and re-requesting approval when risk is still high
 - the next priority is not inventing more persistence types, but connecting those persisted states to richer autonomous execution
 
 ## 8. Proposed Runtime Model

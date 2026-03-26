@@ -572,6 +572,29 @@ fn continue_command(session_id: Option<&str>) {
                 return;
             };
             let now = chrono::Utc::now();
+            let reopening_paused = snapshot.meta.state == SessionState::Paused;
+
+            if reopening_paused {
+                let _ = append_jsonl_line(
+                    &session_dir.join("transcript.jsonl"),
+                    &serde_json::json!({
+                        "timestamp": now,
+                        "line": format!("[resume] reopening paused work {}", active_step),
+                    }),
+                );
+                let _ = append_jsonl_line(
+                    &session_dir.join("orchestrator_events.jsonl"),
+                    &serde_json::json!({
+                        "timestamp": now,
+                        "event": {
+                            "ObjectiveProgress": {
+                                "id": plan.objective_id,
+                                "status": "InProgress"
+                            }
+                        }
+                    }),
+                );
+            }
 
             let interaction_begin = serde_json::json!({
                 "timestamp": now,

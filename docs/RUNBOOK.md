@@ -96,6 +96,7 @@ Verification note:
 - [x] `review` and `continue` now prefer persisted pending work over inferred plan position when choosing the next actionable step
 - [x] denied sessions now restore as `Paused`, show paused coordinator/executor cells, and retain the denied action in local pending work
 - [x] `resume` now preserves persisted session state instead of forcing paused or completed sessions back to `Active`
+- [x] `continue` from a paused session now logs an explicit reopen step and re-enters approval-gated execution from preserved pending work
 - [ ] reason-aware failover is not verified as integrated runtime behavior
 - [x] auth rotation is intentionally out of scope for the current local-first build
 - [ ] hook-driven automation and memory flushes need end-to-end verification, not just type presence
