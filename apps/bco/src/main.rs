@@ -304,11 +304,21 @@ fn resume_command(session_id: Option<&str>) {
             println!("  Created: {}", snapshot.meta.created_at);
 
             if let Some(session) = bootstrap_from_existing(&snapshot.meta) {
-                update_session_state(&session, SessionState::Active);
+                let resumed_state = snapshot.meta.state;
+                update_session_state(&session, resumed_state);
                 println!("  Session resumed successfully.");
 
                 let mut state = snapshot.into_tui_state();
                 state.status.resumed = true;
+                state.footer_hint = match resumed_state {
+                    SessionState::Paused => {
+                        "Session paused │ review pending work or operator decision before continue"
+                    }
+                    SessionState::Completed => {
+                        "Session completed │ review artifacts or fork to branch new work"
+                    }
+                    _ => "Enter: send │ /help: commands │ Ctrl+C: interrupt",
+                };
                 if let Err(error) = bco_tui::run_tui(state) {
                     eprintln!("TUI error: {}", error);
                 }
