@@ -8,6 +8,8 @@ The stable center is the orchestration spine. Everything else should plug into t
 
 The orchestration reference point is Codex-style goal-directed execution. OpenClaw is the reference for autonomy and persistence behaviors. OpenCode is the reference for provider-agnostic model connectivity and fast switching. Claude Code is only a terminal UX reference.
 
+Reference extraction details live in [REFERENCE_ANALYSIS.md](/Users/pf/workspace/brain-cell-orchestration/docs/REFERENCE_ANALYSIS.md).
+
 ## High-Level Shape
 
 ```text
@@ -35,6 +37,7 @@ Operator
 - CLI argument parsing
 - process lifecycle
 - interactive vs headless mode switch
+- top-level commands such as `exec`, `review`, `resume`, `fork`, `providers`, and `models`
 
 ### `crates/bco-core`
 
@@ -58,6 +61,7 @@ Operator
 - queueing and turn execution
 - reviewer-driven replanning
 - model-switch-aware execution routing
+- objective tracking and next-action explanation
 
 ### `crates/bco-session`
 
@@ -137,6 +141,14 @@ Harness selection and model selection should be related but independent:
 - harness decides domain execution policy
 - model layer decides which backend satisfies that policy
 
+Recommended data types:
+
+- `ProviderRef`
+- `ModelRef`
+- `ConnectionProfile`
+- `ActiveModelState`
+- `ModelSwitchEvent`
+
 ## Execution Contract
 
 Execution backends should be adapter-driven.
@@ -204,6 +216,15 @@ The TUI should present:
 - connection health
 - risk and capability status
 - resumed or scheduled execution state
+
+Primary operator actions should stay one command away:
+
+- switch model
+- connect provider
+- inspect cells
+- inspect memory
+- resume prior work
+- approve or reject pending actions
 
 The TUI should avoid decorative terminal chrome. Density and clarity matter more than ornament.
 

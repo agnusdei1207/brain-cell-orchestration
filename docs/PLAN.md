@@ -67,7 +67,19 @@ This lets one runtime execute many classes of work without turning into a monoli
 - low-noise operator surface
 - transcript + status + plan visibility without excessive chrome
 
-## 4. Non-Goals For Phase 0
+## 4. Reference Extraction Summary
+
+Detailed analysis lives in [REFERENCE_ANALYSIS.md](/Users/pf/workspace/brain-cell-orchestration/docs/REFERENCE_ANALYSIS.md).
+
+The short version:
+
+- `codex` is the main orchestration reference
+- `pentesting` is the main cell-runtime reference
+- `openclaw` is the main autonomy and persistence reference
+- `opencode` is the main model-connectivity reference
+- `claude-code` is UI only
+
+## 5. Non-Goals For Phase 0
 
 - no GUI or web dashboard
 - no TypeScript runtime
@@ -75,7 +87,7 @@ This lets one runtime execute many classes of work without turning into a monoli
 - no multi-tenant SaaS control plane
 - no premature plugin marketplace
 
-## 5. Core Requirements
+## 6. Core Requirements
 
 ### Functional
 
@@ -101,7 +113,7 @@ This lets one runtime execute many classes of work without turning into a monoli
 - durable restart-safe persistence semantics
 - provider and model configuration must be hot-swappable
 
-## 6. Proposed Runtime Model
+## 7. Proposed Runtime Model
 
 The runtime should be composed from eight layers:
 
@@ -122,7 +134,7 @@ The runtime should be composed from eight layers:
 8. `operator layer`
    Expose status, approvals, transcript, memory, and intervention controls in TUI.
 
-## 7. Harness Strategy
+## 8. Harness Strategy
 
 Each harness should define:
 
@@ -148,7 +160,7 @@ Later, hybrid harness composition can support flows like:
 - pentest + report drafting
 - CTF + reverse engineering
 
-## 8. Autonomy And Persistence
+## 9. Autonomy And Persistence
 
 The system should explicitly model the OpenClaw-style lesson that good autonomy depends on durable state, predictable wake behavior, and bounded retries.
 
@@ -172,7 +184,7 @@ Safety rule:
 
 - autonomy must stay subordinate to capability policy, approval policy, and harness-specific safety posture
 
-## 9. Model Connectivity
+## 10. Model Connectivity
 
 The runtime should adopt the OpenCode lesson that model operations must stay easy while the orchestration layer stays stable.
 
@@ -190,7 +202,7 @@ Operator UX goals:
 - connection state should be inspectable in-session
 - harness selection and model selection should remain separate decisions
 
-## 10. TUI Plan
+## 11. TUI Plan
 
 The TUI should learn from Claude Code only at the UI/UX level, not at the orchestration philosophy level.
 
@@ -210,7 +222,17 @@ Interaction targets:
 - visible harness switching and capability provenance
 - explicit state for resumed, queued, or scheduled work
 
-## 11. File and Data Model
+Planned primary slash commands:
+
+- `/model`
+- `/connect`
+- `/harness`
+- `/cells`
+- `/memory`
+- `/resume`
+- `/approvals`
+
+## 12. File and Data Model
 
 Suggested append-only storage layout:
 
@@ -232,7 +254,21 @@ Suggested append-only storage layout:
 
 The session layer should support replay, export, cross-turn continuity, and restart-safe resume.
 
-## 12. Phased Delivery
+## 13. Command Surface Plan
+
+Interactive command targets:
+
+- `bco`
+- `bco resume`
+- `bco fork`
+- `bco exec`
+- `bco review`
+- `bco providers`
+- `bco models`
+
+The command surface intentionally follows the Codex and OpenCode lesson that session operations and model operations should be visible at the top level.
+
+## 14. Phased Delivery
 
 ### Phase 0: bootstrap
 
@@ -242,6 +278,7 @@ The session layer should support replay, export, cross-turn continuity, and rest
 - compile a minimal binary in Docker
 - define objective, autonomy, and persistence contracts
 - define provider/model switching contract
+- document reference extraction and adoption rules
 
 ### Phase 1: orchestration core
 
@@ -251,6 +288,7 @@ The session layer should support replay, export, cross-turn continuity, and rest
 - session persistence
 - explicit objective tracking model
 - provider registry and `provider/model` parsing
+- command parser skeleton for interactive and headless modes
 
 ### Phase 2: terminal UX
 
@@ -267,6 +305,7 @@ The session layer should support replay, export, cross-turn continuity, and rest
 - coding harness MVP
 - pentest harness MVP
 - tool contracts and capability gates
+- harness-specific preferred-model policies
 
 ### Phase 4: autonomy hardening
 
@@ -278,7 +317,7 @@ The session layer should support replay, export, cross-turn continuity, and rest
 - crash recovery coverage
 - model failover and reconnect coverage
 
-## 13. Engineering Standards
+## 15. Engineering Standards
 
 - every crate has a narrow responsibility
 - runtime behavior must be observable from logs and session artifacts
@@ -288,7 +327,14 @@ The session layer should support replay, export, cross-turn continuity, and rest
 - autonomous paths must remain auditable
 - provider/model transitions must be logged and explainable
 
-## 14. Immediate Next Work
+Additional standards from the reference analysis:
+
+- avoid oversized central modules
+- keep UI separate from orchestration state
+- prefer explicit operator controls over magic
+- keep plugin and integration surfaces out of the core until contracts are stable
+
+## 16. Immediate Next Work
 
 - implement workspace-wide shared types for task, policy, and event flow
 - define harness trait and registry contract
@@ -298,3 +344,4 @@ The session layer should support replay, export, cross-turn continuity, and rest
 - define provider registry and `/model` `/connect` command contracts
 - replace bootstrap stdout flow with a real command parser
 - introduce `ratatui` once orchestration state shape is stable
+- define top-level CLI commands `resume`, `fork`, `exec`, `review`, `providers`, and `models`
