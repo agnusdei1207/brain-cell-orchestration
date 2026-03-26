@@ -12,13 +12,13 @@ ENV TERM=xterm-256color \
 
 # Kali GPG keyring setup for authenticated package installation
 RUN echo "deb [signed-by=/usr/share/keyrings/kali-archive-keyring.gpg] http://kali.download/kali kali-rolling main contrib non-free non-free-firmware" > /etc/apt/sources.list && \
-    apt-get update -qq && \
-    apt-get install -y --no-install-recommends ca-certificates curl gnupg dirmngr gpg-agent && \
+    apt update -qq && \
+    apt install -y --no-install-recommends ca-certificates curl gnupg dirmngr gpg-agent && \
     curl -fsSL https://archive.kali.org/archive-keyring.gpg | gpg --dearmor > /usr/share/keyrings/kali-archive-keyring.gpg && \
-    apt-get update -qq
+    apt update -qq
 
 # Core tools for brain-cell-orchestration
-RUN apt-get install -y --no-install-recommends \
+RUN apt install -y --no-install-recommends \
     bash \
     build-essential \
     curl \
