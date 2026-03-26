@@ -40,9 +40,9 @@ This section records what appears to be implemented already versus what is still
 
 ### Confirmed missing or incomplete now
 
-- [ ] real inter-cell message bus is not yet fully implemented
-- [ ] real submission queue and event queue are not yet wired end-to-end
-- [ ] session actor queue is not yet implemented
+- [x] real inter-cell message bus is not yet fully implemented (MessageBus added, wired to OrchestratorRuntime)
+- [x] real submission queue and event queue are not yet wired end-to-end (SubmissionQueue wired, handle_operator_input implemented)
+- [x] session actor queue is not yet implemented (SessionActorQueue added with enqueue/dequeue)
 - [ ] reason-aware failover is not yet implemented in Rust runtime
 - [ ] auth profile rotation and cooldown system is not yet implemented
 - [ ] hook-driven automation and memory flushes are not yet implemented

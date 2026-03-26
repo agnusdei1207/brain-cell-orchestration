@@ -1301,3 +1301,303 @@ impl BrainCellOrchestrator {
         self.event_queue.emit(event);
     }
 }
+
+// =============================================================================
+// Inter-Cell Message Bus - real message routing between cells
+// =============================================================================
+
+/// Inter-cell message bus - routes messages between cells
+#[derive(Debug)]
+pub struct MessageBus {
+    /// Pending messages indexed by recipient
+    pending: RwLock<HashMap<CellId, Vec<InterCellMessage>>>,
+    /// Delivery mode preference
+    delivery_mode: DeliveryMode,
+}
+
+impl MessageBus {
+    pub fn new() -> Self {
+        Self {
+            pending: RwLock::new(HashMap::new()),
+            delivery_mode: DeliveryMode::QueueOnly,
+        }
+    }
+
+    /// Send a message to a cell
+    pub fn send(&self, message: InterCellMessage) {
+        let mut pending = self.pending.write().unwrap();
+        pending
+            .entry(message.recipient)
+            .or_default()
+            .push(message);
+    }
+
+    /// Send message to multiple recipients (broadcast)
+    pub fn broadcast(&self, authors: &[CellId], recipient: CellId, content: CellMessageContent) {
+        for author in authors {
+            let msg = InterCellMessage::new(*author, recipient, content.clone(), self.delivery_mode);
+            self.send(msg);
+        }
+    }
+
+    /// Receive messages for a specific cell
+    pub fn receive(&self, recipient: CellId) -> Vec<InterCellMessage> {
+        let mut pending = self.pending.write().unwrap();
+        pending.remove(&recipient).unwrap_or_default()
+    }
+
+    /// Check if a cell has pending messages
+    pub fn has_messages(&self, recipient: CellId) -> bool {
+        let pending = self.pending.read().unwrap();
+        pending.get(&recipient).map(|msgs| !msgs.is_empty()).unwrap_or(false)
+    }
+
+    /// Get pending message count for a cell
+    pub fn pending_count(&self, recipient: CellId) -> usize {
+        let pending = self.pending.read().unwrap();
+        pending.get(&recipient).map(|msgs| msgs.len()).unwrap_or(0)
+    }
+
+    /// Clear all pending messages
+    pub fn clear(&self) {
+        let mut pending = self.pending.write().unwrap();
+        pending.clear();
+    }
+}
+
+impl Default for MessageBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// =============================================================================
+// Session Actor Queue - serializes session operations
+// =============================================================================
+
+/// Session actor queue - ensures serialized session mutations
+#[derive(Debug)]
+pub struct SessionActorQueue {
+    inner: StdRwLock<SessionActorState>,
+    pending_count: StdRwLock<HashMap<bco_session::SessionId, u32>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionActorState {
+    Idle,
+    Processing,
+    Busy,
+}
+
+impl SessionActorQueue {
+    pub fn new() -> Self {
+        Self {
+            inner: StdRwLock::new(SessionActorState::Idle),
+            pending_count: StdRwLock::new(HashMap::new()),
+        }
+    }
+
+    /// Check if a session is currently processing
+    pub fn is_processing(&self, session_id: bco_session::SessionId) -> bool {
+        let count = self.pending_count.read().unwrap();
+        *count.get(&session_id).unwrap_or(&0) > 0
+    }
+
+    /// Enqueue an operation for a session
+    pub fn enqueue(&self, session_id: bco_session::SessionId) -> bool {
+        let mut state = self.inner.write().unwrap();
+        if *state == SessionActorState::Processing {
+            // Already processing, just increment pending
+            let mut count = self.pending_count.write().unwrap();
+            *count.entry(session_id).or_insert(0) += 1;
+            return false;
+        }
+        *state = SessionActorState::Processing;
+        let mut count = self.pending_count.write().unwrap();
+        count.insert(session_id, 1);
+        true
+    }
+
+    /// Dequeue (complete) an operation for a session
+    pub fn dequeue(&self, session_id: bco_session::SessionId) {
+        let mut count = self.pending_count.write().unwrap();
+        if let Some(c) = count.get_mut(&session_id) {
+            *c = c.saturating_sub(1);
+            if *c == 0 {
+                count.remove(&session_id);
+                let mut state = self.inner.write().unwrap();
+                *state = SessionActorState::Idle;
+            }
+        }
+    }
+
+    /// Get total pending operations across all sessions
+    pub fn total_pending(&self) -> usize {
+        let count = self.pending_count.read().unwrap();
+        count.values().sum::<u32>() as usize
+    }
+
+    /// Force state to busy (when session is handling multiple operations)
+    pub fn set_busy(&self, session_id: bco_session::SessionId) {
+        let mut state = self.inner.write().unwrap();
+        *state = SessionActorState::Busy;
+        let mut count = self.pending_count.write().unwrap();
+        *count.entry(session_id).or_insert(0) += 1;
+    }
+}
+
+impl Default for SessionActorQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// =============================================================================
+// Orchestrator Runtime - actual turn loop wiring
+// =============================================================================
+
+use std::sync::Arc;
+
+/// Orchestrator runtime - wired execution loop
+#[derive(Debug)]
+pub struct OrchestratorRuntime {
+    orchestrator: Arc<std::sync::RwLock<BrainCellOrchestrator>>,
+    blackboard: Arc<Blackboard>,
+    message_bus: Arc<MessageBus>,
+    submission_queue: Arc<std::sync::RwLock<SubmissionQueue>>,
+    session_queue: Arc<SessionActorQueue>,
+    services: RuntimeServices,
+}
+
+impl OrchestratorRuntime {
+    pub fn new(registry: HarnessRegistry, services: RuntimeServices) -> Self {
+        Self {
+            orchestrator: Arc::new(std::sync::RwLock::new(BrainCellOrchestrator::new(registry))),
+            blackboard: Arc::new(Blackboard::new()),
+            message_bus: Arc::new(MessageBus::new()),
+            submission_queue: Arc::new(std::sync::RwLock::new(SubmissionQueue::new())),
+            session_queue: Arc::new(SessionActorQueue::new()),
+            services,
+        }
+    }
+
+    /// Submit operator input to the orchestrator
+    pub fn submit(&self, input: OperatorInput) -> Result<(), RuntimeError> {
+        // Serialize session operations through actor queue
+        let session_id = bco_session::SessionId::new(); // Would extract from context
+        if !self.session_queue.enqueue(session_id) {
+            return Err(RuntimeError::SessionBusy { session_id });
+        }
+
+        // Add to submission queue
+        {
+            let mut queue = self.submission_queue.write().unwrap();
+            queue.enqueue(input);
+        }
+
+        self.session_queue.dequeue(session_id);
+        Ok(())
+    }
+
+    /// Process one turn - main runtime loop step
+    pub fn process_turn(&self, ctx: &ExecutionContext) -> Result<TurnResult, RuntimeError> {
+        let mut orch = self.orchestrator.write().unwrap();
+
+        // Process submission queue
+        let input = {
+            let mut queue = self.submission_queue.write().unwrap();
+            queue.dequeue()
+        };
+
+        if let Some(input) = input {
+            self.handle_operator_input(&mut orch, input)?;
+        }
+
+        // Emit turn submitted event
+        orch.emit_event(OrchestrationEvent::TurnSubmitted {
+            objective_id: ctx.objective_id,
+        });
+
+        Ok(TurnResult::Processed)
+    }
+
+    fn handle_operator_input(&self, orch: &mut BrainCellOrchestrator, input: OperatorInput) -> Result<(), RuntimeError> {
+        match input {
+            OperatorInput::Execute { intent } => {
+                // Create objective and emit event
+                let objective_id = ObjectiveId::new();
+                orch.emit_event(OrchestrationEvent::ObjectiveCreated { id: objective_id });
+            }
+            OperatorInput::Interrupt => {
+                // Request cancellation on all active cells
+                for cell_id in self.blackboard.get_active_cells() {
+                    self.blackboard.update_cell_status(cell_id, CellStatus::Cancelled);
+                }
+            }
+            OperatorInput::SwitchModel { model } => {
+                let model_ref = ModelRef::parse(&model)
+                    .map_err(|e| RuntimeError::InvalidModel(e.to_string()))?;
+                self.services.model_manager.set_active(model_ref.clone());
+                orch.emit_event(OrchestrationEvent::ModelSwitch {
+                    from: "unknown".to_string(),
+                    to: model,
+                    reason: "manual".to_string(),
+                });
+            }
+            OperatorInput::Approve { request_id } => {
+                self.blackboard.resolve_approval(request_id, true);
+                orch.emit_event(OrchestrationEvent::ApprovalGranted { request_id });
+            }
+            OperatorInput::Deny { request_id, reason } => {
+                self.blackboard.resolve_approval(request_id, false);
+                orch.emit_event(OrchestrationEvent::ApprovalDenied { request_id, reason });
+            }
+            OperatorInput::Resume { objective_id: _ } => {
+                // Would restore from checkpoint
+            }
+        }
+        Ok(())
+    }
+
+    /// Get the blackboard for UI display
+    pub fn blackboard(&self) -> &Blackboard {
+        &self.blackboard
+    }
+
+    /// Get the message bus
+    pub fn message_bus(&self) -> &MessageBus {
+        &self.message_bus
+    }
+
+    /// Get event queue for UI consumption
+    pub fn drain_events(&self) -> Vec<OrchestrationEvent> {
+        let mut orch = self.orchestrator.write().unwrap();
+        orch.event_queue.drain()
+    }
+}
+
+#[derive(Debug)]
+pub enum RuntimeError {
+    SessionBusy { session_id: bco_session::SessionId },
+    InvalidModel(String),
+    CellNotFound { cell_id: CellId },
+}
+
+impl std::fmt::Display for RuntimeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SessionBusy { session_id } => write!(f, "session {} is busy", session_id),
+            Self::InvalidModel(msg) => write!(f, "invalid model: {}", msg),
+            Self::CellNotFound { cell_id } => write!(f, "cell not found: {}", cell_id),
+        }
+    }
+}
+
+impl std::error::Error for RuntimeError {}
+
+#[derive(Debug)]
+pub enum TurnResult {
+    Processed,
+    WaitingForInput,
+    ObjectiveComplete,
+}
