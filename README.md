@@ -44,6 +44,8 @@ crates/
 docs/
   README.md            docs entrypoint
   RUNBOOK.md           primary execution runbook
+  philosophy/
+    PHILOSOPHY.md      core project philosophy
   architecture/
     ARCHITECTURE.md    target architecture
   planning/
@@ -74,3 +76,5 @@ docker run --rm brain-cell-orchestration
 This repository is intentionally at bootstrap stage. The current implementation compiles as a minimal Rust workspace and prints the initial orchestration blueprint. The detailed build plan and product scope live in [PLAN.md](/Users/pf/workspace/brain-cell-orchestration/docs/planning/PLAN.md).
 
 For actual build execution, use [RUNBOOK.md](/Users/pf/workspace/brain-cell-orchestration/docs/RUNBOOK.md) as the working runbook.
+
+For the project's durable design beliefs and replacement strategy, see [PHILOSOPHY.md](/Users/pf/workspace/brain-cell-orchestration/docs/philosophy/PHILOSOPHY.md).

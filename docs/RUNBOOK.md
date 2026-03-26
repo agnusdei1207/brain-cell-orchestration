@@ -14,6 +14,7 @@ Instruction for implementation agents:
 
 - treat this as the primary document
 - use other docs only when this runbook references them
+- if a design tradeoff is unclear, consult [PHILOSOPHY.md](/Users/pf/workspace/brain-cell-orchestration/docs/philosophy/PHILOSOPHY.md) before inventing a new direction
 
 ## Working Rules
 
@@ -35,6 +36,11 @@ This project exists because the prior lesson was clear:
 Implementation rule:
 
 - if a change makes a harness thicker but the core weaker, it is moving in the wrong direction
+
+Replacement rule:
+
+- this repo is expected to replace `../pentesting`, not coexist with it permanently
+- packaging and migration decisions should assume final publication under the `pentesting` name
 
 ## Current Repo Audit
 

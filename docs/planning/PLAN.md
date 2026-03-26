@@ -37,6 +37,14 @@ Core insight from this project reset:
 - harnesses should stay thin, swappable, and policy-driven
 - the model layer should remain replaceable underneath that spine
 
+See [PHILOSOPHY.md](/Users/pf/workspace/brain-cell-orchestration/docs/philosophy/PHILOSOPHY.md) for the durable decision rules behind this plan.
+
+Product transition insight:
+
+- this repository is intended to replace `../pentesting` when complete
+- the old Pentesting implementation is expected to be removed
+- the new runtime is expected to ship under the existing `pentesting` npm identity
+
 ## 3. Benchmark Targets
 
 ### Codex traits to benchmark

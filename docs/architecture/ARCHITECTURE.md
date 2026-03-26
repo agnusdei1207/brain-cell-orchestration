@@ -13,6 +13,8 @@ Project insight:
 - the core must own planning, control, messaging, approvals, persistence, and observability
 - harnesses must remain policy-driven overlays on that core
 
+The philosophy behind these rules is recorded in [PHILOSOPHY.md](/Users/pf/workspace/brain-cell-orchestration/docs/philosophy/PHILOSOPHY.md).
+
 The orchestration reference point is Codex-style goal-directed execution. OpenClaw is the reference for autonomy and persistence behaviors. OpenCode is the reference for provider-agnostic model connectivity and fast switching. Claude Code is only a terminal UX reference.
 
 Reference extraction details live in [REFERENCE_ANALYSIS.md](/Users/pf/workspace/brain-cell-orchestration/docs/research/REFERENCE_ANALYSIS.md).

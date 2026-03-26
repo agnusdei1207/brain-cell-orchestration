@@ -14,6 +14,8 @@ That is the primary execution document.
 docs/
   README.md
   RUNBOOK.md
+  philosophy/
+    PHILOSOPHY.md
   architecture/
     ARCHITECTURE.md
   planning/
@@ -26,8 +28,8 @@ docs/
 ## Roles
 
 - `RUNBOOK.md`: the implementation runbook and checklist
+- `philosophy/PHILOSOPHY.md`: core project beliefs and replacement strategy
 - `architecture/ARCHITECTURE.md`: target system shape and crate boundaries
 - `planning/PLAN.md`: product plan and execution philosophy
 - `planning/ROADMAP.md`: milestone overview
 - `research/REFERENCE_ANALYSIS.md`: extracted strengths from reference projects
-
