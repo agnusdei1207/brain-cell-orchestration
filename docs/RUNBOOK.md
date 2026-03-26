@@ -122,8 +122,8 @@ Current state:
 
 - [x] reference runtime exists in `../pentesting/Dockerfile`
 - [x] local repo has an untracked `Dockerfile.base` intended to move toward Kali
-- [ ] current tracked `Dockerfile` is still `rust:1.90-bookworm -> debian:bookworm-slim`
-- [ ] the tracked runtime is therefore not yet aligned with the CTF-first Kali requirement
+- [x] current tracked `Dockerfile` uses `rust:1.94-bookworm -> kalilinux/kali-rolling`
+- [x] the tracked runtime is aligned with the CTF-first Kali requirement
 
 Required adoption from `../pentesting`
 
