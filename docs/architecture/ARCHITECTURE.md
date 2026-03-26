@@ -23,6 +23,8 @@ Important boundary:
 
 The orchestration reference point is Codex-style goal-directed execution. OpenClaw is the reference for autonomy and persistence behaviors. OpenCode is the reference for provider-agnostic model connectivity and fast switching. Claude Code is only a terminal UX reference.
 
+This runtime is not scoped to web-only CTF. The target operator surface includes CTF, offensive security, and broader red-team workflows that need the same orchestration spine and TUI shell.
+
 Reference extraction details live in [REFERENCE_ANALYSIS.md](/Users/pf/workspace/brain-cell-orchestration/docs/research/REFERENCE_ANALYSIS.md).
 
 ## High-Level Shape

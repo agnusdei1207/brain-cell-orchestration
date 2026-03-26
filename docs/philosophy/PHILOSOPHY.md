@@ -62,18 +62,19 @@ Therefore:
 - switching models should be cheap
 - the runtime should not be structurally coupled to one vendor
 
-### 4. CTF comes first
+### 4. CTF and red-team work come first
 
-Although the architecture should generalize, the first real product target is CTF competition use.
+Although the architecture should generalize, the first real product target is offensive operator use across CTF and broader red-team workflows.
 
 That means:
 
 - the CTF harness is primary, not decorative
+- offensive-security and red-team task flow must be treated as a first-class target
 - the runtime must favor fast, goal-directed execution
 - the Docker/runtime story must respect offensive tooling needs
 - Kali-based runtime assumptions are justified
 
-Pentest, coding, and generalist modes are important, but they come after the CTF-first core is strong.
+Coding and generalist modes are important, but they come after the offensive core is strong.
 
 ### 5. Persistence is mandatory
 

@@ -5,7 +5,7 @@
 Build a Rust-only orchestration platform that can execute broadly across:
 
 - CTF workflows
-- offensive security and pentesting tasks
+- offensive security, adversary-emulation, and red-team tasks
 - coding and software engineering work
 - general terminal-native operator tasks
 
@@ -111,6 +111,8 @@ The short version:
 - `openclaw` is the main autonomy and persistence reference
 - `opencode` is the main model-connectivity reference
 - `claude-code` is UI only
+
+All local reference projects are expected to be available one directory up from this repo, such as `../codex`, `../opencode`, `../openclaw`, `../claude-code`, and `../pentesting`.
 
 ## 5. Implementation Environment Assumption
 

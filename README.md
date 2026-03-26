@@ -6,17 +6,19 @@ Rust-first orchestration workspace for dynamic task execution across CTF, pentes
 
 `brain-cell-orchestration` is intended to combine:
 
-- the goal-oriented orchestration model of `./codex`
-- the domain rigor and cell-based execution model already explored in `./pentesting`
-- the autonomy and persistence mindset from `./openclaw`
-- the provider-agnostic model switching UX of `./opencode`
-- the TUI UI/UX cues of `./claude-code`
+- the goal-oriented orchestration model of `../codex`
+- the domain rigor and cell-based execution model already explored in `../pentesting`
+- the autonomy and persistence mindset from `../openclaw`
+- the provider-agnostic model switching UX of `../opencode`
+- the TUI UI/UX cues of `../claude-code`
 
 The core product goal is simple: infer operator intent, mount the right harness automatically, and execute with a stable orchestration spine instead of building a separate agent for each domain.
 
 The runtime should also remain resumable and automation-ready instead of behaving like a stateless prompt shell.
 
 The key project insight is that model quality is important, but orchestration quality matters more. Domain changes should come from swapping thin harnesses on top of one strong orchestration core.
+
+The primary operator target is not web-only CTF. It is a terminal-native TUI system that can drive CTF, offensive security, and broader red-team workflows with the same orchestration core.
 
 ## Design Principles
 
