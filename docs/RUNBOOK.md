@@ -27,6 +27,12 @@ Instruction for implementation agents:
 
 This section records what appears to be implemented already versus what is still only planned.
 
+Verification note:
+
+- this audit was reviewed against the repository state on 2026-03-26
+- `[x]` means verified in code or build output
+- `[ ]` means missing, partial, stale, or not sufficiently verified
+
 ### Confirmed implemented now
 
 - [x] Rust workspace exists
@@ -36,26 +42,29 @@ This section records what appears to be implemented already versus what is still
 - [x] orchestrator crate contains first-pass control-plane and cell identity types
 - [x] session layout and runtime metadata types exist
 - [x] TUI layout and status types exist
-- [x] current Debian-based Docker build still compiles
+- [x] current Kali-based Docker build still compiles
+- [x] `session_runtime.json`, `orchestrator_events.jsonl`, `cell_topology.jsonl`, and related layout paths exist in `bco-session`
+- [x] `MessageBus`, `SubmissionQueue`, `EventQueue`, and `SessionActorQueue` types exist
+- [x] auth profile and model switch related types exist in `bco-core`
+- [x] CTF harness contains challenge-type and artifact expectation helpers
 
 ### Confirmed missing or incomplete now
 
-- [x] real inter-cell message bus is not yet fully implemented (MessageBus added, wired to OrchestratorRuntime)
-- [x] real submission queue and event queue are not yet wired end-to-end (SubmissionQueue wired, handle_operator_input implemented)
-- [x] session actor queue is not yet implemented (SessionActorQueue added with enqueue/dequeue)
-- [x] reason-aware failover is not yet implemented in Rust runtime (ModelManager.handle_model_failure with reason classification, retry delays)
-- [x] auth profile rotation and cooldown system is not yet implemented (AuthProfile, AuthCredentials, AuthProfileState, AuthRotationPolicy, AuthRotationManager with cooldown tracking)
-- [x] hook-driven automation and memory flushes are not yet implemented (HookRegistry, HookEvent, HookAction, CheckpointManager.trigger_hooks with MemoryFlushPolicy automation)
-- [x] subtree shutdown and lineage persistence need verification in code, not just types (Blackboard::shutdown_subtree recursively marks cells Cancelled, lineage tracked in BlackboardState)
-- [x] session writeback files and append-only logs need implementation verification (SessionBootstrap writes session_runtime.json, append_jsonl for all log files)
-- [x] CTF harness is still placeholder-level, not competition-ready (now has challenge-type classification, tool hints, artifact expectations per type)
-- [x] current main Dockerfile is not yet aligned with the requested Kali runtime path
+- [ ] real inter-cell message flow is still partial: `MessageBus` exists, but cell execution is not actually driven by queued messages end-to-end
+- [ ] `SubmissionQueue` currently behaves like a stack (`Vec::push` + `pop`) rather than a FIFO queue
+- [ ] `SessionActorQueue` is not truly per-session isolated yet; it uses one shared state gate and `submit()` creates a fresh session id each call
+- [ ] event queue exists in memory, but append-only event persistence is not wired into runtime flow
+- [ ] session writeback files exist, but runtime append/writeback usage is not fully wired beyond bootstrap creation
+- [ ] reason-aware failover is not verified as integrated runtime behavior
+- [ ] auth profile rotation and cooldown types exist, but runtime integration is not yet verified
+- [ ] hook-driven automation and memory flushes need end-to-end verification, not just type presence
+- [ ] subtree shutdown and lineage persistence need stronger implementation verification, not just type or helper presence
+- [ ] CTF harness has useful helper methods, but it is still not competition-ready as a full execution harness
 
 ### Local worktree note
 
-- [x] untracked files currently exist: `Dockerfile.base`, `test.sh`
-- [x] these must be reviewed before merge, not blindly adopted
-- [x] `Dockerfile.base` currently contains a likely typo: symlink uses `bcargo` instead of `cargo`
+- [x] untracked files currently exist: `.bco/`
+- [ ] untracked helper Docker files from earlier audit are no longer pending in the current worktree snapshot
 
 ## Pattern Audit
 
